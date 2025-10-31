@@ -1,39 +1,42 @@
-
+# app.py
+# Restaurant Recommender – FYP EC3319
+# Krish Chakradhar – 00020758
+# FINAL: NO WHITE BAR + DETAIL PAGE WORKS + FAVORITE + SIMILAR
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import pickle
 import sqlite3
 import hashlib
 import os
-from datetime import datetime
 
 # ========================================
 # CONFIG
 # ========================================
 st.set_page_config(page_title="Foodmandu Recommender", layout="centered", initial_sidebar_state="expanded")
 
-# PROFESSIONAL STYLING
+# PROFESSIONAL STYLING – REMOVE WHITE BAR
 st.markdown("""
 <style>
-    .main {background-color: #f8f9fa; padding: 2rem;}
+    .main {background-color: #f8f9fa; padding: 0; margin: 0;}
+    .block-container {padding-top: 1rem; padding-bottom: 2rem;}
     .login-container {max-width: 420px; margin: 2rem auto; padding: 2.5rem; background: white; border-radius: 16px; box-shadow: 0 12px 35px rgba(0,0,0,0.1);}
-    .title {font-size: 2.8rem; font-weight: 800; color: white; text-align: center; margin-bottom: 0.5rem; text-shadow: 0 2px 4px rgba(0,0,0,0.3);}
-    .subtitle {text-align: center; color: #ddd; font-size: 1.1rem; margin-bottom: 2.5rem;}
+    .title {font-size: 2.8rem; font-weight: 800; color: #007bff; text-align: center; margin: 1rem 0 0.5rem;}
+    .subtitle {text-align: center; color: #666; font-size: 1.1rem; margin-bottom: 2rem;}
     .stButton>button {background: #007bff; color: white; border-radius: 10px; font-weight: 600; padding: 0.7rem; width: 100%; border: none;}
     .stButton>button:hover {background: #0056b3;}
     .card {background: white; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .tag {background: #007bff; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
     .register-link {text-align: center; margin-top: 1rem;}
     .stButton > button[kind="secondary"] {background: #6c757d; color: white;}
-    .stButton > button[kind="secondary"]:hover {background: #5a6268;}
     .detail-card {background: white; border-radius: 16px; padding: 2rem; margin: 1.5rem 0; box-shadow: 0 8px 25px rgba(0,0,0,0.1);}
     .favorite-btn {background: #ffc107; color: #212529;}
-    .favorite-btn:hover {background: #e0a800;}
-    .similar-card {background: #f1f3f5; border-radius: 12px; padding: 1rem; margin: 0.8rem 0;}
+    .similar-card {background: #f8f9fa; border-radius: 12px; padding: 1rem; margin: 0.8rem 0;}
     .back-btn {background: #6c757d; color: white;}
-    .back-btn:hover {background: #5a6268;}
+    /* REMOVE WHITE BAR */
+    .css-1d391kg, .css-1v0mbdj, .css-1y0t3 {display: none !important;}
+    .css-1v3fvcr {padding: 0 !important;}
+    header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -294,14 +297,14 @@ def page_restaurant_detail(rest_name):
     uid = st.session_state.user_id
     rest = rest_metadata[rest_metadata['Restaurant Name'] == rest_name].iloc[0]
 
-    # Favorite
-    is_fav = is_favorite(uid, rest_name)
     col1, col2 = st.columns([3, 1])
     with col1:
         if st.button("Back to Search", use_container_width=True, type="secondary"):
-            st.session_state.page = "search"
+            if 'selected_rest' in st.session_state:
+                del st.session_state.selected_rest
             st.rerun()
     with col2:
+        is_fav = is_favorite(uid, rest_name)
         fav_label = "Unfavorite" if is_fav else "Favorite"
         if st.button(fav_label, use_container_width=True, key=f"fav_{rest_name}"):
             toggle_favorite(uid, rest_name)
@@ -318,10 +321,10 @@ def page_restaurant_detail(rest_name):
     """, unsafe_allow_html=True)
 
     if st.button("Show Similar Restaurants", use_container_width=True):
-        st.session_state.similar_rest = rest_name
+        st.session_state.show_similar = rest_name
         st.rerun()
 
-    if 'similar_rest' in st.session_state and st.session_state.similar_rest == rest_name:
+    if 'show_similar' in st.session_state and st.session_state.show_similar == rest_name:
         st.markdown("### Similar Restaurants")
         sim_recs = get_similar_restaurants(rest_name)
         if not sim_recs.empty:
@@ -332,8 +335,10 @@ def page_restaurant_detail(rest_name):
                     <p><span class="tag">{row['Cuisine Type']}</span> <span class="tag">{row['Location']}</span></p>
                 </div>
                 """, unsafe_allow_html=True)
-                if st.button("View Details", key=row['Restaurant Name']):
+                if st.button("View Details", key=f"sim_{row['Restaurant Name']}"):
                     st.session_state.selected_rest = row['Restaurant Name']
+                    if 'show_similar' in st.session_state:
+                        del st.session_state.show_similar
                     st.rerun()
         else:
             st.info("No similar restaurants found.")
@@ -345,6 +350,7 @@ def page_main():
     st.markdown('<div class="title">Find Restaurants</div>', unsafe_allow_html=True)
     uid = st.session_state.user_id
 
+    all_locations = sorted(rest_metadata['Location'].unique().tolist())
     last_loc = get_preference(uid, 'last_location')
     default_loc = last_loc if last_loc and last_loc in all_locations else all_locations[0]
 
@@ -375,15 +381,13 @@ def page_main():
                     <p><strong>Price:</strong> Rs. {row.get('avg_price', 'N/A'):.0f}</p>
                 </div>
                 """, unsafe_allow_html=True)
-                if st.button("View Details", key=row['Restaurant Name']):
+                if st.button("View Details", key=f"view_{row['Restaurant Name']}"):
                     st.session_state.selected_rest = row['Restaurant Name']
                     st.rerun()
 
 # ========================================
 # MAIN ROUTING
 # ========================================
-all_locations = sorted(rest_metadata['Location'].unique().tolist())
-
 if 'user_id' not in st.session_state:
     page_auth()
 else:
@@ -391,14 +395,11 @@ else:
 
     if 'selected_rest' in st.session_state:
         page_restaurant_detail(st.session_state.selected_rest)
-    elif 'page' in st.session_state and st.session_state.page == "search":
-        page_main()
     else:
         tab1, tab2 = st.tabs(["Search", "Dashboard"])
         with tab1:
             page_main()
         with tab2:
-            # Dashboard code (same as before)
             st.markdown('<div class="title">Your Dashboard</div>', unsafe_allow_html=True)
             uid = st.session_state.user_id
             col1, col2 = st.columns([1, 2])
