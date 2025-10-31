@@ -15,12 +15,32 @@ import os
 # ========================================
 st.set_page_config(page_title="Foodmandu Recommender", layout="centered", initial_sidebar_state="expanded")
 
-# PROFESSIONAL STYLING – REMOVE WHITE BAR
+# PROFESSIONAL STYLING – REMOVE ALL WHITE BARS
 st.markdown("""
 <style>
-    .main {background-color: #f8f9fa; padding: 0; margin: 0;}
-    .block-container {padding-top: 1rem; padding-bottom: 2rem;}
-    .login-container {max-width: 420px; margin: 2rem auto; padding: 2.5rem; background: white; border-radius: 16px; box-shadow: 0 12px 35px rgba(0,0,0,0.1);}
+    /* Remove all white bars and padding */
+    .main {background-color: #f8f9fa; padding: 0 !important; margin: 0 !important;}
+    .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100% !important;}
+    
+    /* Hide Streamlit header and menu */
+    header {visibility: hidden !important; height: 0 !important;}
+    #MainMenu {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    .stDeployButton {display: none !important;}
+    
+    /* Remove top padding */
+    .css-1d391kg, .css-1v0mbdj, .css-1y0tad3, .css-1v3fvcr {padding: 0 !important;}
+    div[data-testid="stToolbar"] {display: none !important;}
+    
+    .login-container {
+        max-width: 420px; 
+        margin: 2rem auto; 
+        padding: 2.5rem; 
+        background: white; 
+        border-radius: 16px; 
+        box-shadow: 0 12px 35px rgba(0,0,0,0.1);
+    }
+    
     .title {font-size: 2.8rem; font-weight: 800; color: #007bff; text-align: center; margin: 1rem 0 0.5rem;}
     .subtitle {text-align: center; color: #666; font-size: 1.1rem; margin-bottom: 2rem;}
     .stButton>button {background: #007bff; color: white; border-radius: 10px; font-weight: 600; padding: 0.7rem; width: 100%; border: none;}
@@ -28,15 +48,63 @@ st.markdown("""
     .card {background: white; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .tag {background: #007bff; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
     .register-link {text-align: center; margin-top: 1rem;}
-    .stButton > button[kind="secondary"] {background: #6c757d; color: white;}
-    .detail-card {background: white; border-radius: 16px; padding: 2rem; margin: 1.5rem 0; box-shadow: 0 8px 25px rgba(0,0,0,0.1);}
-    .favorite-btn {background: #ffc107; color: #212529;}
-    .similar-card {background: #f8f9fa; border-radius: 12px; padding: 1rem; margin: 0.8rem 0;}
-    .back-btn {background: #6c757d; color: white;}
-    /* REMOVE WHITE BAR */
-    .css-1d391kg, .css-1v0mbdj, .css-1y0t3 {display: none !important;}
-    .css-1v3fvcr {padding: 0 !important;}
-    header {visibility: hidden;}
+    
+    .detail-card {
+        background: white; 
+        border-radius: 16px; 
+        padding: 2rem; 
+        margin: 1.5rem 0; 
+        box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+    }
+    
+    .similar-card {
+        background: #f8f9fa; 
+        border-radius: 12px; 
+        padding: 1.5rem; 
+        margin: 1rem 0;
+        border: 1px solid #dee2e6;
+        transition: all 0.3s ease;
+    }
+    
+    .similar-card:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+    }
+    
+    .favorite-btn {
+        background: #ffc107 !important;
+        color: #212529 !important;
+    }
+    
+    .favorite-btn:hover {
+        background: #e0a800 !important;
+    }
+    
+    .unfavorite-btn {
+        background: #dc3545 !important;
+        color: white !important;
+    }
+    
+    .back-btn {
+        background: #6c757d !important;
+        color: white !important;
+    }
+    
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #e9ecef;
+    }
+    
+    .info-label {
+        font-weight: 600;
+        color: #495057;
+    }
+    
+    .info-value {
+        color: #212529;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -161,6 +229,13 @@ def toggle_favorite(user_id, rest_name):
         conn.commit()
         return True
 
+def log_interaction(user_id, restaurant, action):
+    try:
+        cur.execute("INSERT INTO interactions (user_id, restaurant, action) VALUES (?, ?, ?)", 
+                   (user_id, restaurant, action))
+        conn.commit()
+    except: pass
+
 # ========================================
 # AUTH
 # ========================================
@@ -215,7 +290,13 @@ def sidebar_profile():
         st.image("https://upload.wikimedia.org/wikipedia/commons/5/5e/Nilai_University_Logo.png", width=100)
         st.markdown(f"### Hi, **{st.session_state.username}**")
         st.markdown("---")
-        if st.button("Logout", use_container_width=True):
+        if st.button("🏠 Home", use_container_width=True):
+            if 'selected_rest' in st.session_state:
+                del st.session_state.selected_rest
+            if 'show_similar' in st.session_state:
+                del st.session_state.show_similar
+            st.rerun()
+        if st.button("🚪 Logout", use_container_width=True):
             for k in list(st.session_state.keys()): del st.session_state[k]
             st.rerun()
         st.markdown("---")
@@ -235,7 +316,7 @@ def sidebar_profile():
 # AUTH PAGE
 # ========================================
 def page_auth():
-    st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
+    st.markdown('<div class="title">🍽️ Foodmandu Recommender</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Find the best restaurants near you</div>', unsafe_allow_html=True)
 
     with st.container():
@@ -247,7 +328,7 @@ def page_auth():
         if st.session_state.show_register:
             st.markdown("### Create Account")
             if st.session_state.reg_success:
-                st.success("Account created! Please login.")
+                st.success("✅ Account created! Please login.")
                 st.session_state.reg_success = False
                 st.markdown("---")
 
@@ -256,8 +337,8 @@ def page_auth():
                 reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
                 reg_e = st.text_input("Email", placeholder="Your email", key="reg_e")
                 col1, col2 = st.columns(2)
-                with col1: reg_submit = st.form_submit_button("Create Account")
-                with col2: back = st.form_submit_button("Back to Login")
+                with col1: reg_submit = st.form_submit_button("Create Account", use_container_width=True)
+                with col2: back = st.form_submit_button("Back to Login", use_container_width=True)
                 if back:
                     st.session_state.show_register = False
                     st.rerun()
@@ -266,7 +347,7 @@ def page_auth():
                         st.session_state.reg_success = True
                         st.rerun()
                     else:
-                        st.error("Username taken or invalid input.")
+                        st.error("❌ Username taken or invalid input.")
         else:
             st.markdown("### Login")
             with st.form("login_form"):
@@ -279,11 +360,13 @@ def page_auth():
                         st.session_state.user_id = uid
                         st.session_state.username = username
                         ensure_preference_row(uid)
-                        st.success("Login successful!")
+                        st.success("✅ Login successful!")
                         st.rerun()
                     else:
-                        st.error("Invalid credentials")
-            if st.button("Register now", use_container_width=True, type="secondary"):
+                        st.error("❌ Invalid credentials")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("📝 Create New Account", use_container_width=True, type="secondary"):
                 st.session_state.show_register = True
                 st.rerun()
 
@@ -293,53 +376,99 @@ def page_auth():
 # RESTAURANT DETAIL PAGE
 # ========================================
 def page_restaurant_detail(rest_name):
-    st.markdown(f'<div class="title">{rest_name}</div>', unsafe_allow_html=True)
     uid = st.session_state.user_id
-    rest = rest_metadata[rest_metadata['Restaurant Name'] == rest_name].iloc[0]
-
-    col1, col2 = st.columns([3, 1])
+    
+    # Log interaction
+    log_interaction(uid, rest_name, "viewed")
+    
+    # Get restaurant data
+    rest_data = rest_metadata[rest_metadata['Restaurant Name'] == rest_name]
+    if rest_data.empty:
+        st.error("Restaurant not found!")
+        return
+    
+    rest = rest_data.iloc[0]
+    
+    # Header with back and favorite buttons
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        if st.button("Back to Search", use_container_width=True, type="secondary"):
+        if st.button("⬅️ Back to Search", use_container_width=True, type="secondary"):
             if 'selected_rest' in st.session_state:
                 del st.session_state.selected_rest
+            if 'show_similar' in st.session_state:
+                del st.session_state.show_similar
             st.rerun()
+    
     with col2:
         is_fav = is_favorite(uid, rest_name)
-        fav_label = "Unfavorite" if is_fav else "Favorite"
+        fav_label = "💔 Unfavorite" if is_fav else "❤️ Favorite"
+        fav_key = "unfavorite" if is_fav else "favorite"
         if st.button(fav_label, use_container_width=True, key=f"fav_{rest_name}"):
-            toggle_favorite(uid, rest_name)
+            new_state = toggle_favorite(uid, rest_name)
+            action = "favorited" if new_state else "unfavorited"
+            log_interaction(uid, rest_name, action)
             st.rerun()
-
+    
+    with col3:
+        if st.button("🔍 Similar", use_container_width=True):
+            st.session_state.show_similar = not st.session_state.get('show_similar', False)
+            st.rerun()
+    
+    # Restaurant Details Card
+    st.markdown(f'<div class="title">{rest["Restaurant Name"]}</div>', unsafe_allow_html=True)
+    
     st.markdown(f"""
     <div class="detail-card">
-        <h3>{rest['Restaurant Name']}</h3>
-        <p><strong>Location:</strong> {rest['Location']}</p>
-        <p><strong>Cuisine:</strong> {rest['Cuisine Type']}</p>
-        <p><strong>Price:</strong> Rs. {rest.get('avg_price', 'N/A'):.0f}</p>
-        <p><strong>Rating:</strong> {rest.get('rating', 'N/A')}/5</p>
+        <div class="info-row">
+            <span class="info-label">📍 Location:</span>
+            <span class="info-value">{rest['Location']}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">🍽️ Cuisine:</span>
+            <span class="info-value">{rest['Cuisine Type']}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">💰 Average Price:</span>
+            <span class="info-value">Rs. {rest.get('avg_price', 'N/A'):.0f if pd.notna(rest.get('avg_price')) else 'N/A'}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">⭐ Rating:</span>
+            <span class="info-value">{rest.get('rating', 'N/A')}/5 {'⭐' * int(rest.get('rating', 0)) if pd.notna(rest.get('rating')) else ''}</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
-
-    if st.button("Show Similar Restaurants", use_container_width=True):
-        st.session_state.show_similar = rest_name
-        st.rerun()
-
-    if 'show_similar' in st.session_state and st.session_state.show_similar == rest_name:
-        st.markdown("### Similar Restaurants")
-        sim_recs = get_similar_restaurants(rest_name)
+    
+    # Similar Restaurants Section
+    if st.session_state.get('show_similar', False):
+        st.markdown("---")
+        st.markdown("### 🔍 Similar Restaurants")
+        sim_recs = get_similar_restaurants(rest_name, top_n=5)
+        
         if not sim_recs.empty:
-            for _, row in sim_recs.iterrows():
-                st.markdown(f"""
-                <div class="similar-card">
-                    <h5>{row['Restaurant Name']}</h5>
-                    <p><span class="tag">{row['Cuisine Type']}</span> <span class="tag">{row['Location']}</span></p>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button("View Details", key=f"sim_{row['Restaurant Name']}"):
-                    st.session_state.selected_rest = row['Restaurant Name']
-                    if 'show_similar' in st.session_state:
-                        del st.session_state.show_similar
-                    st.rerun()
+            for idx, row in sim_recs.iterrows():
+                col_a, col_b = st.columns([4, 1])
+                
+                with col_a:
+                    st.markdown(f"""
+                    <div class="similar-card">
+                        <h4 style="margin: 0 0 0.5rem 0; color: #007bff;">{row['Restaurant Name']}</h4>
+                        <p style="margin: 0;">
+                            <span class="tag">{row['Cuisine Type']}</span>
+                            <span class="tag">{row['Location']}</span>
+                        </p>
+                        <p style="margin: 0.5rem 0 0 0;">
+                            <strong>Price:</strong> Rs. {row.get('avg_price', 'N/A'):.0f if pd.notna(row.get('avg_price')) else 'N/A'} | 
+                            <strong>Rating:</strong> {row.get('rating', 'N/A')}/5
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col_b:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("View", key=f"sim_{row['Restaurant Name']}", use_container_width=True):
+                        st.session_state.selected_rest = row['Restaurant Name']
+                        st.session_state.show_similar = False
+                        st.rerun()
         else:
             st.info("No similar restaurants found.")
 
@@ -347,7 +476,7 @@ def page_restaurant_detail(rest_name):
 # MAIN SEARCH PAGE
 # ========================================
 def page_main():
-    st.markdown('<div class="title">Find Restaurants</div>', unsafe_allow_html=True)
+    st.markdown('<div class="title">🔍 Find Restaurants</div>', unsafe_allow_html=True)
     uid = st.session_state.user_id
 
     all_locations = sorted(rest_metadata['Location'].unique().tolist())
@@ -356,11 +485,11 @@ def page_main():
 
     col1, col2 = st.columns([2, 1])
     with col1:
-        location = st.selectbox("Select your area:", options=all_locations, index=all_locations.index(default_loc))
+        location = st.selectbox("📍 Select your area:", options=all_locations, index=all_locations.index(default_loc))
     with col2:
-        cuisine = st.selectbox("Cuisine?", options=["Any"] + sorted(rest_metadata['Cuisine Type'].unique().tolist()))
+        cuisine = st.selectbox("🍽️ Cuisine?", options=["Any"] + sorted(rest_metadata['Cuisine Type'].unique().tolist()))
 
-    if st.button("Search Restaurants", use_container_width=True):
+    if st.button("🔍 Search Restaurants", use_container_width=True):
         increment_search_count(uid)
         set_preference(uid, last_location=location)
         cuisine_filter = cuisine if cuisine != "Any" else None
@@ -369,21 +498,27 @@ def page_main():
         if recs.empty:
             st.warning(f"No restaurants found in **{location}**")
         else:
-            st.success(f"Top {len(recs)} in **{location}**")
+            st.success(f"✅ Found {len(recs)} restaurant(s) in **{location}**")
             for _, row in recs.iterrows():
-                st.markdown(f"""
-                <div class="card">
-                    <h4 style="margin:0; color:#007bff;">{row['Restaurant Name']}</h4>
-                    <p style="margin:0.3rem 0;">
-                        <span class="tag">{row['Cuisine Type']}</span>
-                        <span class="tag">{row['Location']}</span>
-                    </p>
-                    <p><strong>Price:</strong> Rs. {row.get('avg_price', 'N/A'):.0f}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button("View Details", key=f"view_{row['Restaurant Name']}"):
-                    st.session_state.selected_rest = row['Restaurant Name']
-                    st.rerun()
+                col_card, col_btn = st.columns([4, 1])
+                
+                with col_card:
+                    st.markdown(f"""
+                    <div class="card">
+                        <h4 style="margin:0; color:#007bff;">{row['Restaurant Name']}</h4>
+                        <p style="margin:0.3rem 0;">
+                            <span class="tag">{row['Cuisine Type']}</span>
+                            <span class="tag">{row['Location']}</span>
+                        </p>
+                        <p style="margin:0.5rem 0 0 0;"><strong>💰 Price:</strong> Rs. {row.get('avg_price', 'N/A'):.0f if pd.notna(row.get('avg_price')) else 'N/A'} | <strong>⭐ Rating:</strong> {row.get('rating', 'N/A')}/5</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col_btn:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("View", key=f"view_{row['Restaurant Name']}", use_container_width=True):
+                        st.session_state.selected_rest = row['Restaurant Name']
+                        st.rerun()
 
 # ========================================
 # MAIN ROUTING
@@ -396,15 +531,15 @@ else:
     if 'selected_rest' in st.session_state:
         page_restaurant_detail(st.session_state.selected_rest)
     else:
-        tab1, tab2 = st.tabs(["Search", "Dashboard"])
+        tab1, tab2 = st.tabs(["🔍 Search", "📊 Dashboard"])
         with tab1:
             page_main()
         with tab2:
-            st.markdown('<div class="title">Your Dashboard</div>', unsafe_allow_html=True)
+            st.markdown('<div class="title">📊 Your Dashboard</div>', unsafe_allow_html=True)
             uid = st.session_state.user_id
             col1, col2 = st.columns([1, 2])
             with col1:
-                st.subheader("Profile")
+                st.subheader("👤 Profile")
                 try:
                     cur.execute("SELECT username, email, created_at FROM users WHERE id=?", (uid,))
                     user = cur.fetchone()
@@ -412,23 +547,28 @@ else:
                     st.write(f"**Email:** {user[1]}")
                     st.write(f"**Member Since:** {user[2][:10]}")
                 except: st.write("Profile data unavailable.")
-                st.subheader("Favorites")
+                
+                st.markdown("---")
+                st.subheader("❤️ Favorites")
                 cur.execute("SELECT restaurant FROM favorites WHERE user_id=?", (uid,))
                 favs = cur.fetchall()
                 if favs:
                     for (r,) in favs:
-                        st.write(f"- {r}")
+                        if st.button(r, key=f"fav_dash_{r}", use_container_width=True):
+                            st.session_state.selected_rest = r
+                            st.rerun()
                 else:
                     st.info("No favorites yet.")
+            
             with col2:
-                st.subheader("Recent Activity")
+                st.subheader("📜 Recent Activity")
                 try:
                     cur.execute("SELECT restaurant, action, timestamp FROM interactions WHERE user_id=? ORDER BY timestamp DESC LIMIT 10", (uid,))
                     logs = cur.fetchall()
                     if logs:
                         log_df = pd.DataFrame(logs, columns=["Restaurant", "Action", "Time"])
                         log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
-                        st.dataframe(log_df, use_container_width=True)
+                        st.dataframe(log_df, use_container_width=True, hide_index=True)
                     else:
                         st.info("No activity yet.")
                 except: st.info("No activity log.")
