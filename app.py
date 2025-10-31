@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: NO READONLY ERROR + REGISTER WORKS
+# FINAL: AFTER SIGNUP → STAY ON REGISTER + SHOW SUCCESS
 
 import streamlit as st
 import pandas as pd
@@ -35,10 +35,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 MODEL_DIR = "recommender_model"
-DB_PATH = "/tmp/restaurant_recommender.db"  # ALWAYS WRITABLE
+DB_PATH = "/tmp/restaurant_recommender.db"
 
 # ========================================
-# ENSURE DB EXISTS IN /tmp/
+# INIT DB IN /tmp/
 # ========================================
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -82,7 +82,6 @@ def init_db():
     conn.commit()
     return conn
 
-# Initialize DB
 conn = init_db()
 cur = conn.cursor()
 
@@ -165,9 +164,7 @@ def login(u, p):
         cur.execute("SELECT id FROM users WHERE username=? AND password_hash=?", (u, hash_pw(p)))
         row = cur.fetchone()
         return row[0] if row and row[0] else None
-    except Exception as e:
-        st.error(f"Login failed: {str(e)}")
-        return None
+    except: return None
 
 # ========================================
 # LOCATIONS
@@ -225,7 +222,7 @@ def sidebar_profile():
         st.write(f"**Last Area:** `{last_loc}`")
 
 # ========================================
-# AUTH PAGE – REGISTER ON BUTTON
+# AUTH PAGE – STAY ON REGISTER AFTER SIGNUP
 # ========================================
 def page_auth():
     st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
@@ -237,8 +234,19 @@ def page_auth():
         if 'show_register' not in st.session_state:
             st.session_state.show_register = False
 
+        if 'reg_success' not in st.session_state:
+            st.session_state.reg_success = False
+
+        # SHOW REGISTER FORM
         if st.session_state.show_register:
             st.markdown("### Create Account")
+            
+            # SUCCESS MESSAGE
+            if st.session_state.reg_success:
+                st.success("Account created! Please login.")
+                st.session_state.reg_success = False  # Reset
+                st.markdown("---")
+
             with st.form("register_form"):
                 reg_u = st.text_input("Username", placeholder="Choose username", key="reg_u")
                 reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
@@ -256,12 +264,12 @@ def page_auth():
 
                 if reg_submit:
                     if register(reg_u, reg_p, reg_e):
-                        st.success("Account created! Please login.")
-                        st.session_state.show_register = False
-                        st.rerun()
+                        st.session_state.reg_success = True
+                        st.rerun()  # Stay on register page
                     else:
                         st.error("Username taken or invalid input.")
 
+        # SHOW LOGIN FORM
         else:
             st.markdown("### Login")
             with st.form("login_form"):
