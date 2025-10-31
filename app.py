@@ -541,7 +541,50 @@ def page_main():
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("View", key=f"view_{row['Restaurant Name']}", use_container_width=True):
                         st.session_state.selected_rest = row['Restaurant Name']
+                        log_interaction(uid, row['Restaurant Name'], "clicked")
                         st.rerun()
+
+# ========================================
+# DASHBOARD PAGE
+# ========================================
+def page_dashboard():
+    st.markdown('<div class="title">📊 Your Dashboard</div>', unsafe_allow_html=True)
+    uid = st.session_state.user_id
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.subheader("👤 Profile")
+        try:
+            cur.execute("SELECT username, email, created_at FROM users WHERE id=?", (uid,))
+            user = cur.fetchone()
+            st.write(f"**Name:** {user[0]}")
+            st.write(f"**Email:** {user[1]}")
+            st.write(f"**Member Since:** {user[2][:10]}")
+        except: st.write("Profile data unavailable.")
+        
+        st.markdown("---")
+        st.subheader("❤️ Favorites")
+        cur.execute("SELECT restaurant FROM favorites WHERE user_id=?", (uid,))
+        favs = cur.fetchall()
+        if favs:
+            for (r,) in favs:
+                if st.button(r, key=f"fav_dash_{r}", use_container_width=True):
+                    st.session_state.selected_rest = r
+                    st.rerun()
+        else:
+            st.info("No favorites yet.")
+    
+    with col2:
+        st.subheader("📜 Recent Activity")
+        try:
+            cur.execute("SELECT restaurant, action, timestamp FROM interactions WHERE user_id=? ORDER BY timestamp DESC LIMIT 10", (uid,))
+            logs = cur.fetchall()
+            if logs:
+                log_df = pd.DataFrame(logs, columns=["Restaurant", "Action", "Time"])
+                log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
+                st.dataframe(log_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No activity yet.")
+        except: st.info("No activity log.")
 
 # ========================================
 # MAIN ROUTING
@@ -551,47 +594,13 @@ if 'user_id' not in st.session_state:
 else:
     sidebar_profile()
 
-    if 'selected_rest' in st.session_state:
+    # Check if a restaurant is selected - show detail page
+    if 'selected_rest' in st.session_state and st.session_state.selected_rest:
         page_restaurant_detail(st.session_state.selected_rest)
     else:
+        # Show main tabs when no restaurant is selected
         tab1, tab2 = st.tabs(["🔍 Search", "📊 Dashboard"])
         with tab1:
             page_main()
         with tab2:
-            st.markdown('<div class="title">📊 Your Dashboard</div>', unsafe_allow_html=True)
-            uid = st.session_state.user_id
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.subheader("👤 Profile")
-                try:
-                    cur.execute("SELECT username, email, created_at FROM users WHERE id=?", (uid,))
-                    user = cur.fetchone()
-                    st.write(f"**Name:** {user[0]}")
-                    st.write(f"**Email:** {user[1]}")
-                    st.write(f"**Member Since:** {user[2][:10]}")
-                except: st.write("Profile data unavailable.")
-                
-                st.markdown("---")
-                st.subheader("❤️ Favorites")
-                cur.execute("SELECT restaurant FROM favorites WHERE user_id=?", (uid,))
-                favs = cur.fetchall()
-                if favs:
-                    for (r,) in favs:
-                        if st.button(r, key=f"fav_dash_{r}", use_container_width=True):
-                            st.session_state.selected_rest = r
-                            st.rerun()
-                else:
-                    st.info("No favorites yet.")
-            
-            with col2:
-                st.subheader("📜 Recent Activity")
-                try:
-                    cur.execute("SELECT restaurant, action, timestamp FROM interactions WHERE user_id=? ORDER BY timestamp DESC LIMIT 10", (uid,))
-                    logs = cur.fetchall()
-                    if logs:
-                        log_df = pd.DataFrame(logs, columns=["Restaurant", "Action", "Time"])
-                        log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
-                        st.dataframe(log_df, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("No activity yet.")
-                except: st.info("No activity log.")
+            page_dashboard()
