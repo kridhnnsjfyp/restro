@@ -1,3 +1,8 @@
+# app.py
+# Restaurant Recommender – FYP EC3319
+# Krish Chakradhar – 00020758
+# FINAL: REGISTER LINK WORKS + WHITE TITLE + CENTERED
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,18 +18,18 @@ from datetime import datetime
 # ========================================
 st.set_page_config(page_title="Foodmandu Recommender", layout="centered", initial_sidebar_state="expanded")
 
-# CLEAN & PROFESSIONAL STYLING
+# PROFESSIONAL STYLING
 st.markdown("""
 <style>
     .main {background-color: #f8f9fa; padding: 2rem;}
-    .login-container {max-width: 400px; margin: 0 auto; padding: 2.5rem; background: white; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.08);}
-    .title {font-size: 2.6rem; font-weight: 700; color: #1a1a1a; text-align: center; margin-bottom: 0.5rem;}
-    .subtitle {text-align: center; color: #666; font-size: 1.1rem; margin-bottom: 2rem;}
-    .stButton>button {background: #007bff; color: white; border-radius: 10px; font-weight: 600; padding: 0.6rem 1.2rem; width: 100%;}
+    .login-container {max-width: 420px; margin: 2rem auto; padding: 2.5rem; background: white; border-radius: 16px; box-shadow: 0 12px 35px rgba(0,0,0,0.1);}
+    .title {font-size: 2.8rem; font-weight: 800; color: white; text-align: center; margin-bottom: 0.5rem; text-shadow: 0 2px 4px rgba(0,0,0,0.3);}
+    .subtitle {text-align: center; color: #ddd; font-size: 1.1rem; margin-bottom: 2.5rem;}
+    .stButton>button {background: #007bff; color: white; border-radius: 10px; font-weight: 600; padding: 0.7rem; width: 100%; border: none;}
     .stButton>button:hover {background: #0056b3;}
     .card {background: white; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .tag {background: #007bff; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
-    .nilai-logo {display: block; margin: 0 auto 1.5rem; width: 120px;}
+    .nilai-logo {display: block; margin: 0 auto 1.5rem; width: 130px; filter: brightness(0) invert(1);}
     a {color: #007bff; text-decoration: none; font-weight: 600;}
     a:hover {text-decoration: underline;}
     .css-1d391kg {padding-top: 1rem;}
@@ -83,7 +88,6 @@ def get_db():
     )
     ''')
 
-    # Add missing columns
     try: cur.execute("ALTER TABLE preferences ADD COLUMN last_location TEXT")
     except: pass
     try: cur.execute("ALTER TABLE preferences ADD COLUMN search_count INTEGER DEFAULT 0")
@@ -213,16 +217,15 @@ def sidebar_profile():
         st.write(f"**Last Area:** `{last_loc}`")
 
 # ========================================
-# LOGIN PAGE – CENTERED, "REGISTER NOW" LINK ONLY
+# LOGIN PAGE – WHITE TITLE + WORKING REGISTER LINK
 # ========================================
 def page_login():
     st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Find the best restaurants near you</div>', unsafe_allow_html=True)
 
+    # Default: Login
     with st.container():
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        
-        # Default: Login
         st.markdown("### Login")
         with st.form("login_form"):
             username = st.text_input("Username", placeholder="Enter username")
@@ -240,29 +243,33 @@ def page_login():
                     st.error("Invalid credentials")
 
         st.markdown("---")
-        st.markdown("Don't have an account? [**Register now**](#register)", unsafe_allow_html=True)
+        st.markdown("Don't have an account? [**Register now**](/register)", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # REGISTER PAGE (Only when ?page=register)
-    if st.experimental_get_query_params().get("page", [None])[0] == "register":
-        with st.container():
-            st.markdown('<div class="login-container">', unsafe_allow_html=True)
-            st.markdown("### Create Account")
-            with st.form("register_form"):
-                reg_u = st.text_input("Username", placeholder="Choose username", key="reg_u")
-                reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
-                reg_e = st.text_input("Email", placeholder="Your email", key="reg_e")
-                reg_submit = st.form_submit_button("Create Account", use_container_width=True)
-                if reg_submit:
-                    if register(reg_u, reg_p, reg_e):
-                        st.success("Account created! Please login.")
-                        st.experimental_set_query_params(page=None)
-                        st.rerun()
-                    else:
-                        st.error("Username taken")
+# ========================================
+# REGISTER PAGE (Separate route)
+# ========================================
+def page_register():
+    st.markdown('<div class="title">Create Account</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Join Foodmandu Recommender</div>', unsafe_allow_html=True)
 
-            st.markdown("Already have an account? [**Login here**](#login)", unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+    with st.container():
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        st.markdown("### Register")
+        with st.form("register_form"):
+            reg_u = st.text_input("Username", placeholder="Choose username", key="reg_u")
+            reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
+            reg_e = st.text_input("Email", placeholder="Your email", key="reg_e")
+            reg_submit = st.form_submit_button("Create Account", use_container_width=True)
+            if reg_submit:
+                if register(reg_u, reg_p, reg_e):
+                    st.success("Account created! Please login.")
+                    st.switch_page("app.py")  # Go back to login
+                else:
+                    st.error("Username taken")
+
+        st.markdown("Already have an account? [**Login here**](/)", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ========================================
 # MAIN PAGE
@@ -359,18 +366,16 @@ def page_dashboard():
             st.info("No activity log.")
 
 # ========================================
-# MAIN
+# ROUTING
 # ========================================
 if 'user_id' not in st.session_state:
-    # Handle register link
-    if st.experimental_get_query_params().get("page", [None])[0] == "register":
-        st.experimental_set_query_params(page="register")
-    page_login()
+    if st.experimental_get_query_params().get("page") == ["register"]:
+        page_register()
+    else:
+        page_login()
 else:
     sidebar_profile()
-    
     tab1, tab2 = st.tabs(["Search", "Dashboard"])
-    
     with tab1:
         page_main()
     with tab2:
