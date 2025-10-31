@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: NO WHITE RECTANGLE + CLEAN UI + DETAIL PAGE WORKS
+# FINAL: DARK CARDS + NO WHITE + DETAIL PAGE + SIMILAR
 
 import streamlit as st
 import pandas as pd
@@ -15,39 +15,70 @@ import os
 # ========================================
 st.set_page_config(page_title="Foodmandu Recommender", layout="centered", initial_sidebar_state="expanded")
 
-# PROFESSIONAL STYLING – REMOVE ALL WHITE BARS & PLACEHOLDERS
+# DARK THEME – NO WHITE CARDS
 st.markdown("""
 <style>
-    .main {background-color: #f8f9fa; padding: 0 !important; margin: 0 !important;}
+    .main {background-color: #1a202c; padding: 0 !important; margin: 0 !important;}
     .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100% !important;}
-    header {visibility: hidden !important;}
-    #MainMenu {visibility: hidden !important;}
-    footer {visibility: hidden !important;}
-    .stDeployButton {display: none !important;}
-    div[data-testid="stToolbar"] {display: none !important;}
+    header, #MainMenu, footer, .stDeployButton, div[data-testid="stToolbar"] {display: none !important;}
     
-    /* REMOVE WHITE RECTANGLE */
-    .stTextInput > div > div > input::placeholder {color: transparent !important;}
-    .stTextInput > div > div > input {background-color: #2d3748 !important; color: white !important; border-radius: 10px !important;}
+    /* INPUT FIELDS */
+    .stTextInput > div > div > input {
+        background-color: #2d3748 !important; 
+        color: white !important; 
+        border-radius: 10px !important;
+        border: 1px solid #4a5568 !important;
+    }
     .stTextInput > label {color: #e2e8f0 !important; font-weight: 600 !important;}
     
     .login-container {
         max-width: 420px; margin: 2rem auto; padding: 2.5rem; background: #1a202c; 
         border-radius: 16px; box-shadow: 0 12px 35px rgba(0,0,0,0.3); color: white;
+        border: 1px solid #2d3748;
     }
     .title {font-size: 2.8rem; font-weight: 800; color: #4299e1; text-align: center; margin: 1rem 0 0.5rem;}
     .subtitle {text-align: center; color: #a0aec0; font-size: 1.1rem; margin-bottom: 2rem;}
-    .stButton>button {background: #4299e1; color: white; border-radius: 10px; font-weight: 600; padding: 0.7rem; width: 100%; border: none;}
+    
+    /* BUTTONS */
+    .stButton>button {
+        background: #4299e1; color: white; border-radius: 10px; font-weight: 600; 
+        padding: 0.7rem; width: 100%; border: none;
+    }
     .stButton>button:hover {background: #3182ce;}
-    .stButton > button[type="secondary"] {background: #48bb78 !important; color: white !important;}
+    .stButton > button[type="secondary"] {background: #48bb78 !important;}
     .stButton > button[type="secondary"]:hover {background: #38a169 !important;}
-    .card {background: white; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
-    .tag {background: #4299e1; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
-    .detail-card {background: white; border-radius: 16px; padding: 2rem; margin: 1.5rem 0; box-shadow: 0 8px 25px rgba(0,0,0,0.1);}
-    .similar-card {background: #f8f9fa; border-radius: 12px; padding: 1.5rem; margin: 1rem 0; border: 1px solid #dee2e6;}
-    .info-row {display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #e9ecef;}
-    .info-label {font-weight: 600; color: #495057;}
-    .info-value {color: #212529;}
+    
+    /* CARDS – DARK GRAY (NO WHITE) */
+    .card {
+        background: #2d3748 !important; 
+        color: white !important;
+        border-radius: 12px; 
+        padding: 1.2rem; 
+        margin: 1rem 0; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        border: 1px solid #4a5568;
+    }
+    .tag {
+        background: #4299e1; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; 
+        font-size: 0.8rem; display: inline-block; margin: 0.2rem;
+    }
+    
+    /* DETAIL & SIMILAR */
+    .detail-card {
+        background: #2d3748 !important; 
+        color: white !important;
+        border-radius: 16px; padding: 2rem; margin: 1.5rem 0; 
+        box-shadow: 0 8px 25px rgba(0,0,0,0.2); border: 1px solid #4a5568;
+    }
+    .similar-card {
+        background: #2d3748 !important; 
+        color: white !important;
+        border-radius: 12px; padding: 1.5rem; margin: 1rem 0; 
+        border: 1px solid #4a5568;
+    }
+    .info-row {display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #4a5568;}
+    .info-label {font-weight: 600; color: #e2e8f0;}
+    .info-value {color: white;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -163,7 +194,7 @@ def login(u, p):
     except: return None
 
 # ========================================
-# AUTH PAGE – NO WHITE RECTANGLE
+# AUTH PAGE
 # ========================================
 def page_auth():
     st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
@@ -180,8 +211,6 @@ def page_auth():
             if st.session_state.reg_success:
                 st.success("Account created! Please login.")
                 st.session_state.reg_success = False
-                st.markdown("---")
-
             with st.form("register_form"):
                 reg_u = st.text_input("Username", placeholder="Enter username", key="reg_u")
                 reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
@@ -199,8 +228,8 @@ def page_auth():
         else:
             st.markdown("### Login")
             with st.form("login_form"):
-                username = st.text_input("Username", placeholder="Enter username")  # LABEL + PLACEHOLDER
-                password = st.text_input("Password", type="password", placeholder="Enter password")  # LABEL + PLACEHOLDER
+                username = st.text_input("Username", placeholder="Enter username")
+                password = st.text_input("Password", type="password", placeholder="Enter password")
                 submit = st.form_submit_button("Login")
                 if submit:
                     uid = login(username, password)
@@ -276,7 +305,7 @@ def page_restaurant_detail(rest_name):
                 with col_a:
                     st.markdown(f"""
                     <div class="similar-card">
-                        <h4 style="margin: 0 0 0.5rem 0; color: #007bff;">{row['Restaurant Name']}</h4>
+                        <h4 style="margin: 0 0 0.5rem 0; color: #4299e1;">{row['Restaurant Name']}</h4>
                         <p style="margin: 0;"><span class="tag">{row['Cuisine Type']}</span> <span class="tag">{row['Location']}</span></p>
                         <p style="margin: 0.5rem 0 0 0;"><strong>Price:</strong> {price_str} | <strong>Rating:</strong> {rating_str}</p>
                     </div>
@@ -323,7 +352,7 @@ def page_main():
                 with col_card:
                     st.markdown(f"""
                     <div class="card">
-                        <h4 style="margin:0; color:#007bff;">{row['Restaurant Name']}</h4>
+                        <h4 style="margin:0; color:#4299e1;">{row['Restaurant Name']}</h4>
                         <p style="margin:0.3rem 0;"><span class="tag">{row['Cuisine Type']}</span> <span class="tag">{row['Location']}</span></p>
                         <p style="margin:0.5rem 0 0 0;"><strong>Price:</strong> {price_str} | <strong>Rating:</strong> {rating_str}</p>
                     </div>
