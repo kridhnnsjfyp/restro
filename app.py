@@ -1,5 +1,4 @@
 
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -15,17 +14,22 @@ from datetime import datetime
 # ========================================
 st.set_page_config(page_title="Foodmandu Recommender", layout="wide", initial_sidebar_state="expanded")
 
-# Professional Styling
+# COLORFUL & PROFESSIONAL STYLING
 st.markdown("""
 <style>
-    .main {background-color: #f8f9fa;}
-    .stButton>button {background-color: #ff6b35; color: white; border-radius: 8px; font-weight: bold;}
-    .stButton>button:hover {background-color: #e55a2b;}
-    .css-1d391kg {padding: 1rem 1.5rem;}
-    .restaurant-card {padding: 1rem; border: 1px solid #ddd; border-radius: 10px; margin: 0.5rem 0; background: white;}
-    .title {font-size: 2.5rem; font-weight: 700; color: #1a1a1a; text-align: center; margin-bottom: 0.5rem;}
-    .subtitle {text-align: center; color: #666; margin-bottom: 2rem;}
-    .nilai-logo {display: block; margin: 0 auto 1rem; width: 150px;}
+    .main {background: linear-gradient(135deg, #ff9a56, #ff6b35); padding: 2rem;}
+    .stApp {background: #fff;}
+    .login-box {background: white; padding: 2rem; border-radius: 15px; box-shadow: 0 8px 25px rgba(0,0,0,0.1);}
+    .title {font-size: 2.8rem; font-weight: 800; color: #1a1a1a; text-align: center; margin-bottom: 0.5rem;}
+    .subtitle {text-align: center; color: #555; font-size: 1.1rem; margin-bottom: 2rem;}
+    .btn-primary {background: #ff6b35; color: white; border-radius: 10px; font-weight: bold; padding: 0.6rem 1.5rem;}
+    .btn-primary:hover {background: #e55a2b;}
+    .card {background: #fff; border-radius: 12px; padding: 1.2rem; margin: 0.8rem 0; box-shadow: 0 4px 15px rgba(0,0,0,0.05); transition: 0.3s;}
+    .card:hover {transform: translateY(-5px); box-shadow: 0 8px 20px rgba(255,107,53,0.2);}
+    .tag {background: #ff6b35; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
+    .nilai-logo {display: block; margin: 0 auto 1rem; width: 140px; border-radius: 50%;}
+    a {color: #ff6b35; text-decoration: none; font-weight: 600;}
+    a:hover {text-decoration: underline;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -81,7 +85,6 @@ def get_db():
     )
     ''')
 
-    # Fix missing columns
     try: cur.execute("ALTER TABLE preferences ADD COLUMN last_location TEXT")
     except: pass
     try: cur.execute("ALTER TABLE preferences ADD COLUMN search_count INTEGER DEFAULT 0")
@@ -133,8 +136,7 @@ def set_preference(user_id, **kwargs):
         values = list(kwargs.values()) + [user_id]
         cur.execute(f"UPDATE preferences SET {updates} WHERE user_id=?", values)
         conn.commit()
-    except Exception as e:
-        st.error(f"DB Error: {e}")
+    except: pass
 
 # ========================================
 # AUTH
@@ -185,17 +187,17 @@ def recommend_by_location(location, cuisine=None, top_n=5):
 # ========================================
 def sidebar_profile():
     with st.sidebar:
-        st.image("https://upload.wikimedia.org/wikipedia/commons/5/5e/Nilai_University_Logo.png", width=120)
+        st.image("https://upload.wikimedia.org/wikipedia/commons/5/5e/Nilai_University_Logo.png", width=120, use_column_width=True)
         st.markdown(f"### Hi, **{st.session_state.username}**")
         st.markdown("---")
         
-        if st.button("Logout", use_container_width=True):
+        if st.button("Logout", use_container_width=True, key="logout"):
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
             st.rerun()
         
         st.markdown("---")
-        st.markdown("#### Stats")
+        st.markdown("#### Your Stats")
         
         uid = st.session_state.user_id
         try:
@@ -207,49 +209,62 @@ def sidebar_profile():
         
         last_loc = get_preference(uid, 'last_location') or "Not set"
         
-        st.write(f"**Searches:** {search_count}")
-        st.write(f"**Interactions:** {interactions}")
-        st.write(f"**Last Area:** {last_loc}")
+        st.markdown(f"**Searches:** `{search_count}`")
+        st.markdown(f"**Selections:** `{interactions}`")
+        st.markdown(f"**Last Area:** `{last_loc}`")
 
 # ========================================
-# LOGIN PAGE
+# LOGIN PAGE – ONLY "REGISTER NOW" LINK
 # ========================================
 def page_login():
     st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Find the best restaurants in your area</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Discover the best restaurants near you</div>', unsafe_allow_html=True)
 
-    col1, col2 = st.columns([1, 1])
-
+    col1, _ = st.columns([1, 1.5])
     with col1:
-        st.markdown("### Login")
-        with st.form("login_form"):
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            submit = st.form_submit_button("Login")
-            if submit:
-                uid = login(username, password)
-                if uid:
-                    st.session_state.user_id = uid
-                    st.session_state.username = username
-                    ensure_preference_row(uid)
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials")
+        with st.container():
+            st.markdown('<div class="login-box">', unsafe_allow_html=True)
+            st.markdown("### Login to Continue")
+            with st.form("login_form"):
+                username = st.text_input("Username", placeholder="Enter your username")
+                password = st.text_input("Password", type="password", placeholder="Enter your password")
+                submit = st.form_submit_button("Login", use_container_width=True)
+                if submit:
+                    uid = login(username, password)
+                    if uid:
+                        st.session_state.user_id = uid
+                        st.session_state.username = username
+                        ensure_preference_row(uid)
+                        st.success("Login successful!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password")
 
-        st.markdown(f"<small>Don't have an account? <a href='#' onclick='document.getElementById(\"register-tab\").click()'>Register now</a></small>", unsafe_allow_html=True)
+            st.markdown("---")
+            st.markdown("Don't have an account? [**Register now**](#register)", unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-    with col2:
-        st.markdown("### Register")
-        with st.form("register_form"):
-            reg_u = st.text_input("Username", key="reg_u")
-            reg_p = st.text_input("Password", type="password", key="reg_p")
-            reg_e = st.text_input("Email", key="reg_e")
-            reg_submit = st.form_submit_button("Create Account")
-            if reg_submit:
-                if register(reg_u, reg_p, reg_e):
-                    st.success("Account created! Please login.")
-                else:
-                    st.error("Username already taken")
+    # REGISTER PAGE (Only when clicked)
+    if st.experimental_get_query_params().get("page", [None])[0] == "register":
+        with col1:
+            with st.container():
+                st.markdown('<div class="login-box">', unsafe_allow_html=True)
+                st.markdown("### Create Your Account")
+                with st.form("register_form"):
+                    reg_u = st.text_input("Username", placeholder="Choose a username", key="reg_u")
+                    reg_p = st.text_input("Password", type="password", placeholder="Create a password", key="reg_p")
+                    reg_e = st.text_input("Email", placeholder="Enter your email", key="reg_e")
+                    reg_submit = st.form_submit_button("Create Account", use_container_width=True)
+                    if reg_submit:
+                        if register(reg_u, reg_p, reg_e):
+                            st.success("Account created! Please login.")
+                            st.experimental_set_query_params(page=None)
+                            st.rerun()
+                        else:
+                            st.error("Username already taken")
+
+                st.markdown("Already have an account? [**Login here**](#login)", unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
 
 # ========================================
 # MAIN PAGE
@@ -261,7 +276,7 @@ def page_main():
     last_loc = get_preference(uid, 'last_location')
     default_loc = last_loc if last_loc and last_loc in all_locations else all_locations[0]
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns([2, 1])
     with col1:
         location = st.selectbox(
             "Select your area:",
@@ -284,22 +299,21 @@ def page_main():
         else:
             st.success(f"Top {len(recs)} in **{location}**")
             for _, row in recs.iterrows():
-                with st.container():
-                    st.markdown(f"""
-                    <div class="restaurant-card">
-                        <h4>{row['Restaurant Name']}</h4>
-                        <p><strong>Cuisine:</strong> {row['Cuisine Type']}<br>
-                           <strong>Location:</strong> {row['Location']}<br>
-                           <strong>Avg Price:</strong> Rs. {row.get('avg_price', 'N/A'):.0f}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    col_a, col_b = st.columns([3, 1])
-                    with col_b:
-                        if st.button("Select", key=row['Restaurant Name']):
-                            cur.execute("INSERT INTO interactions (user_id, restaurant, action) VALUES (?, ?, ?)",
-                                        (uid, row['Restaurant Name'], 'select'))
-                            conn.commit()
-                            st.success(f"Selected **{row['Restaurant Name']}**!")
+                st.markdown(f"""
+                <div class="card">
+                    <h3 style="margin:0; color:#ff6b35;">{row['Restaurant Name']}</h3>
+                    <p style="margin:0.3rem 0;">
+                        <span class="tag">{row['Cuisine Type']}</span>
+                        <span class="tag">{row['Location']}</span>
+                    </p>
+                    <p><strong>Price Range:</strong> Rs. {row.get('avg_price', 'N/A'):.0f}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("Select This Restaurant", key=row['Restaurant Name']):
+                    cur.execute("INSERT INTO interactions (user_id, restaurant, action) VALUES (?, ?, ?)",
+                                (uid, row['Restaurant Name'], 'select'))
+                    conn.commit()
+                    st.success(f"Selected **{row['Restaurant Name']}**!")
 
 # ========================================
 # DASHBOARD
@@ -329,7 +343,7 @@ def page_dashboard():
         st.write(f"**Total Searches:** {search_count}")
 
     with col2:
-        st.subheader("Activity Log")
+        st.subheader("Recent Activity")
         cur.execute("""
             SELECT restaurant, action, timestamp 
             FROM interactions 
@@ -344,12 +358,15 @@ def page_dashboard():
             log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
             st.dataframe(log_df, use_container_width=True)
         else:
-            st.info("No activity yet.")
+            st.info("No activity yet. Start exploring!")
 
 # ========================================
 # MAIN
 # ========================================
 if 'user_id' not in st.session_state:
+    # Handle "Register now" link
+    if st.experimental_get_query_params().get("page", [None])[0] == "register":
+        st.experimental_set_query_params(page="register")
     page_login()
 else:
     sidebar_profile()
