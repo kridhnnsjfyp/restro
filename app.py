@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: DARK CARDS + NO WHITE + DETAIL PAGE + SIMILAR
+# FINAL: VIEW → DETAIL PAGE + DARK THEME + NO WHITE BOXES
 
 import streamlit as st
 import pandas as pd
@@ -22,24 +22,19 @@ st.markdown("""
     .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100% !important;}
     header, #MainMenu, footer, .stDeployButton, div[data-testid="stToolbar"] {display: none !important;}
     
-    /* INPUT FIELDS */
     .stTextInput > div > div > input {
-        background-color: #2d3748 !important; 
-        color: white !important; 
-        border-radius: 10px !important;
+        background-color: #2d3748 !important; color: white !important; border-radius: 10px !important;
         border: 1px solid #4a5568 !important;
     }
     .stTextInput > label {color: #e2e8f0 !important; font-weight: 600 !important;}
     
     .login-container {
         max-width: 420px; margin: 2rem auto; padding: 2.5rem; background: #1a202c; 
-        border-radius: 16px; box-shadow: 0 12px 35px rgba(0,0,0,0.3); color: white;
-        border: 1px solid #2d3748;
+        border-radius: 16px; box-shadow: 0 12px 35px rgba(0,0,0,0.3); color: white; border: 1px solid #2d3748;
     }
     .title {font-size: 2.8rem; font-weight: 800; color: #4299e1; text-align: center; margin: 1rem 0 0.5rem;}
     .subtitle {text-align: center; color: #a0aec0; font-size: 1.1rem; margin-bottom: 2rem;}
     
-    /* BUTTONS */
     .stButton>button {
         background: #4299e1; color: white; border-radius: 10px; font-weight: 600; 
         padding: 0.7rem; width: 100%; border: none;
@@ -48,34 +43,14 @@ st.markdown("""
     .stButton > button[type="secondary"] {background: #48bb78 !important;}
     .stButton > button[type="secondary"]:hover {background: #38a169 !important;}
     
-    /* CARDS – DARK GRAY (NO WHITE) */
-    .card {
-        background: #2d3748 !important; 
-        color: white !important;
-        border-radius: 12px; 
-        padding: 1.2rem; 
-        margin: 1rem 0; 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        border: 1px solid #4a5568;
+    .card, .detail-card, .similar-card {
+        background: #2d3748 !important; color: white !important;
+        border-radius: 12px; padding: 1.2rem; margin: 1rem 0; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2); border: 1px solid #4a5568;
     }
-    .tag {
-        background: #4299e1; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; 
-        font-size: 0.8rem; display: inline-block; margin: 0.2rem;
-    }
-    
-    /* DETAIL & SIMILAR */
-    .detail-card {
-        background: #2d3748 !important; 
-        color: white !important;
-        border-radius: 16px; padding: 2rem; margin: 1.5rem 0; 
-        box-shadow: 0 8px 25px rgba(0,0,0,0.2); border: 1px solid #4a5568;
-    }
-    .similar-card {
-        background: #2d3748 !important; 
-        color: white !important;
-        border-radius: 12px; padding: 1.5rem; margin: 1rem 0; 
-        border: 1px solid #4a5568;
-    }
+    .detail-card {border-radius: 16px; padding: 2rem;}
+    .similar-card {padding: 1.5rem;}
+    .tag {background: #4299e1; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
     .info-row {display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #4a5568;}
     .info-label {font-weight: 600; color: #e2e8f0;}
     .info-value {color: white;}
@@ -86,7 +61,7 @@ MODEL_DIR = "recommender_model"
 DB_PATH = "/tmp/restaurant_recommender.db"
 
 # ========================================
-# INIT DB
+# INIT DB & LOAD MODEL
 # ========================================
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -101,9 +76,6 @@ def init_db():
 conn = init_db()
 cur = conn.cursor()
 
-# ========================================
-# LOAD MODEL
-# ========================================
 @st.cache_resource
 def load_model():
     sim_path = f"{MODEL_DIR}/similarity_matrix.pkl"
@@ -194,15 +166,13 @@ def login(u, p):
     except: return None
 
 # ========================================
-# AUTH PAGE
+# PAGES
 # ========================================
 def page_auth():
     st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Find the best restaurants near you</div>', unsafe_allow_html=True)
-
     with st.container():
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-
         if 'show_register' not in st.session_state: st.session_state.show_register = False
         if 'reg_success' not in st.session_state: st.session_state.reg_success = False
 
@@ -244,12 +214,8 @@ def page_auth():
             if st.button("Create New Account", use_container_width=True, type="secondary"):
                 st.session_state.show_register = True
                 st.rerun()
-
         st.markdown('</div>', unsafe_allow_html=True)
 
-# ========================================
-# RESTAURANT DETAIL PAGE
-# ========================================
 def page_restaurant_detail(rest_name):
     uid = st.session_state.user_id
     log_interaction(uid, rest_name, "viewed")
@@ -262,15 +228,13 @@ def page_restaurant_detail(rest_name):
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         if st.button("Back to Search", use_container_width=True, type="secondary"):
-            for key in ['selected_rest', 'show_similar']:
-                if key in st.session_state: del st.session_state[key]
+            st.session_state.selected_rest = None
             st.rerun()
     with col2:
         is_fav = is_favorite(uid, rest_name)
         fav_label = "Unfavorite" if is_fav else "Favorite"
         if st.button(fav_label, use_container_width=True, key=f"fav_{rest_name}"):
-            new_state = toggle_favorite(uid, rest_name)
-            log_interaction(uid, rest_name, "favorited" if new_state else "unfavorited")
+            toggle_favorite(uid, rest_name)
             st.rerun()
     with col3:
         if st.button("Similar", use_container_width=True):
@@ -298,10 +262,8 @@ def page_restaurant_detail(rest_name):
         if not sim_recs.empty:
             for _, row in sim_recs.iterrows():
                 col_a, col_b = st.columns([4, 1])
-                price_val = row.get('avg_price')
-                price_str = f"Rs. {price_val:.0f}" if pd.notna(price_val) else "N/A"
-                rating_val = row.get('rating')
-                rating_str = f"{rating_val}/5" if pd.notna(rating_val) else "N/A"
+                price_str = f"Rs. {row.get('avg_price', 'N/A'):.0f}" if pd.notna(row.get('avg_price')) else "N/A"
+                rating_str = f"{row.get('rating', 'N/A')}/5" if pd.notna(row.get('rating')) else "N/A"
                 with col_a:
                     st.markdown(f"""
                     <div class="similar-card">
@@ -312,16 +274,13 @@ def page_restaurant_detail(rest_name):
                     """, unsafe_allow_html=True)
                 with col_b:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("View", key=f"sim_view_{row['Restaurant Name']}", use_container_width=True):
+                    if st.button("View", key=f"sim_{row['Restaurant Name']}", use_container_width=True):
                         st.session_state.selected_rest = row['Restaurant Name']
                         st.session_state.show_similar = False
                         st.rerun()
         else:
             st.info("No similar restaurants found.")
 
-# ========================================
-# MAIN SEARCH PAGE
-# ========================================
 def page_main():
     st.markdown('<div class="title">Find Restaurants</div>', unsafe_allow_html=True)
     uid = st.session_state.user_id
@@ -359,15 +318,11 @@ def page_main():
                     """, unsafe_allow_html=True)
                 with col_btn:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    view_key = f"view_{row['Restaurant Name']}_{uid}_{location}"
-                    if st.button("View", key=view_key, use_container_width=True):
-                        st.session_state.selected_rest = row['Restaurant Name']
+                    if st.button("View", key=f"view_{row['Restaurant Name']}", use_container_width=True):
+                        st.session_state.selected_rest = row['Restaurant Name']  # SET FIRST
                         log_interaction(uid, row['Restaurant Name'], "clicked")
-                        st.rerun()
+                        st.rerun()  # RERUN → GO TO DETAIL PAGE
 
-# ========================================
-# DASHBOARD
-# ========================================
 def page_dashboard():
     st.markdown('<div class="title">Your Dashboard</div>', unsafe_allow_html=True)
     uid = st.session_state.user_id
@@ -404,6 +359,29 @@ def page_dashboard():
                 st.info("No activity yet.")
         except: st.info("No activity log.")
 
+def sidebar_profile():
+    with st.sidebar:
+        st.image("https://upload.wikimedia.org/wikipedia/commons/5/5e/Nilai_University_Logo.png", width=100)
+        st.markdown(f"### Hi, **{st.session_state.username}**")
+        st.markdown("---")
+        if st.button("Home", use_container_width=True):
+            st.session_state.selected_rest = None
+            st.rerun()
+        if st.button("Logout", use_container_width=True):
+            for k in list(st.session_state.keys()): del st.session_state[k]
+            st.rerun()
+        st.markdown("---")
+        uid = st.session_state.user_id
+        try:
+            cur.execute("SELECT COUNT(*) FROM interactions WHERE user_id=?", (uid,))
+            interactions = cur.fetchone()[0]
+            search_count = get_preference(uid, 'search_count') or 0
+        except: interactions = search_count = 0
+        last_loc = get_preference(uid, 'last_location') or "Not set"
+        st.write(f"**Searches:** `{search_count}`")
+        st.write(f"**Selections:** `{interactions}`")
+        st.write(f"**Last Area:** `{last_loc}`")
+
 # ========================================
 # RECOMMEND & SIMILAR
 # ========================================
@@ -426,42 +404,20 @@ def get_similar_restaurants(rest_name, top_n=5):
     return rest_metadata[rest_metadata['Restaurant Name'].isin(sim_scores.index)]
 
 # ========================================
-# SIDEBAR
-# ========================================
-def sidebar_profile():
-    with st.sidebar:
-        st.image("https://upload.wikimedia.org/wikipedia/commons/5/5e/Nilai_University_Logo.png", width=100)
-        st.markdown(f"### Hi, **{st.session_state.username}**")
-        st.markdown("---")
-        if st.button("Home", use_container_width=True):
-            for key in ['selected_rest', 'show_similar']: 
-                if key in st.session_state: del st.session_state[key]
-            st.rerun()
-        if st.button("Logout", use_container_width=True):
-            for k in list(st.session_state.keys()): del st.session_state[k]
-            st.rerun()
-        st.markdown("---")
-        uid = st.session_state.user_id
-        try:
-            cur.execute("SELECT COUNT(*) FROM interactions WHERE user_id=?", (uid,))
-            interactions = cur.fetchone()[0]
-            search_count = get_preference(uid, 'search_count') or 0
-        except: interactions = search_count = 0
-        last_loc = get_preference(uid, 'last_location') or "Not set"
-        st.write(f"**Searches:** `{search_count}`")
-        st.write(f"**Selections:** `{interactions}`")
-        st.write(f"**Last Area:** `{last_loc}`")
-
-# ========================================
-# MAIN ROUTING
+# MAIN ROUTING – FIXED ORDER
 # ========================================
 if 'user_id' not in st.session_state:
     page_auth()
 else:
     sidebar_profile()
-    if 'selected_rest' in st.session_state and st.session_state.selected_rest:
+
+    # SET selected_rest FIRST (from button)
+    # Then check if we should show detail page
+    if st.session_state.get('selected_rest'):
         page_restaurant_detail(st.session_state.selected_rest)
     else:
         tab1, tab2 = st.tabs(["Search", "Dashboard"])
-        with tab1: page_main()
-        with tab2: page_dashboard()
+        with tab1:
+            page_main()
+        with tab2:
+            page_dashboard()
