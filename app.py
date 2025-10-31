@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: RATING + FAVORITE + PRICE RANGE + SIMILARITY %
+# FINAL: FAVORITES + RATINGS WORK — NO REDIRECT
 
 import streamlit as st
 import pandas as pd
@@ -43,26 +43,16 @@ st.markdown("""
     .stButton > button[type="secondary"] {background: #48bb78 !important;}
     .stButton > button[type="secondary"]:hover {background: #38a169 !important;}
     
-    .card {
-        background: #2d3748 !important; color: white !important;
-        border-radius: 12px; padding: 1.2rem; margin: 1rem 0; 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2); border: 1px solid #4a5568;
-    }
-    .similar-card {
-        background: #1a202c !important; color: white !important;
-        border-radius: 10px; padding: 1rem; margin: 0.5rem 0; 
-        border: 1px dashed #4a5568; font-size: 0.9rem;
-    }
-    .tag {
-        background: #4299e1; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; 
-        font-size: 0.8rem; display: inline-block; margin: 0.2rem;
-    }
-    .similarity-badge {
-        background: #48bb78; color: white; padding: 0.2rem 0.6rem; border-radius: 12px; 
-        font-size: 0.75rem; font-weight: 600; display: inline-block; margin-left: 0.5rem;
-    }
-    .heart {color: #e53e3e; font-size: 1.2rem; cursor: pointer;}
-    .star {color: #fbbf24; font-size: 1.1rem;}
+    .card {background: #2d3748; color: white; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; 
+           box-shadow: 0 4px 12px rgba(0,0,0,0.2); border: 1px solid #4a5568;}
+    .similar-card {background: #1a202c; color: white; border-radius: 10px; padding: 1rem; margin: 0.5rem 0; 
+                   border: 1px dashed #4a5568; font-size: 0.9rem;}
+    .tag {background: #4299e1; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; 
+          font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
+    .similarity-badge {background: #48bb78; color: white; padding: 0.2rem 0.6rem; border-radius: 12px; 
+                       font-size: 0.75rem; font-weight: 600; display: inline-block; margin-left: 0.5rem;}
+    .heart-filled {color: #e53e3e; font-size: 1.4rem;}
+    .heart-empty {color: #718096; font-size: 1.4rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -180,29 +170,6 @@ def log_interaction(user_id, restaurant, action):
     except: pass
 
 # ========================================
-# AUTH
-# ========================================
-def hash_pw(pw): return hashlib.sha256(pw.encode()).hexdigest()
-
-def register(u, p, e): 
-    try:
-        u = u.strip()
-        if not u or not p or not e: return False
-        cur.execute("SELECT id FROM users WHERE username=?", (u,))
-        if cur.fetchone(): return False
-        cur.execute("INSERT INTO users (username, password_hash, email) VALUES (?, ?, ?)", (u, hash_pw(p), e))
-        conn.commit()
-        return True
-    except: return False
-
-def login(u, p):
-    try:
-        cur.execute("SELECT id FROM users WHERE username=? AND password_hash=?", (u, hash_pw(p)))
-        row = cur.fetchone()
-        return row[0] if row else None
-    except: return None
-
-# ========================================
 # PAGES
 # ========================================
 def page_auth():
@@ -280,13 +247,25 @@ def page_main():
             st.warning(f"No restaurants found in **{location}**")
         else:
             st.success(f"Found {len(recs)} restaurant(s) in **{location}**")
+            # Track open expanders
+            if 'open_expanders' not in st.session_state:
+                st.session_state.open_expanders = set()
+
             for _, row in recs.iterrows():
                 rest_name = row['Restaurant Name']
                 price_range = row.get('Price Range', '').strip()
                 current_rating = get_user_rating(uid, rest_name)
                 is_fav = is_favorite(uid, rest_name)
 
-                with st.expander(f"**{rest_name}**", expanded=False):
+                # Unique key for expander
+                expander_key = f"exp_{rest_name}"
+                is_open = expander_key in st.session_state.open_expanders
+
+                with st.expander(f"**{rest_name}**", expanded=is_open):
+                    # Toggle open state
+                    if not is_open:
+                        st.session_state.open_expanders.add(expander_key)
+
                     col_a, col_b = st.columns([4, 1])
                     with col_a:
                         price_display = f"<strong>Price Range:</strong> {price_range} | " if price_range else ""
@@ -295,8 +274,8 @@ def page_main():
                         <p style="margin:0.5rem 0 0 0;">{price_display}<strong>Rating:</strong> {row.get('rating', 'N/A')}/5</p>
                         """, unsafe_allow_html=True)
 
-                        # RATING
-                        rating_key = f"rate_{rest_name}_{uid}"
+                        # RATING (NO RERUN)
+                        rating_key = f"rate_{rest_name}"
                         new_rating = st.radio(
                             "Rate this restaurant:", 
                             options=[0,1,2,3,4,5], 
@@ -307,15 +286,14 @@ def page_main():
                         if new_rating != current_rating:
                             set_user_rating(uid, rest_name, new_rating)
                             log_interaction(uid, rest_name, f"rated {new_rating}")
-                            st.success(f"Rated {new_rating} stars!")
-                            st.rerun()
+                            st.success(f"Rated {new_rating} stars!", icon="star")
 
                     with col_b:
-                        heart = "filled heart" if is_fav else "empty heart"
-                        if st.button(heart, key=f"fav_{rest_name}", use_container_width=True):
-                            new_fav = toggle_favorite(uid, rest_name)
-                            log_interaction(uid, rest_name, "favorited" if new_fav else "unfavorited")
-                            st.rerun()
+                        heart_icon = "heart-filled" if is_fav else "heart-empty"
+                        if st.button(heart_icon, key=f"fav_{rest_name}", use_container_width=True):
+                            toggle_favorite(uid, rest_name)
+                            log_interaction(uid, rest_name, "favorited")
+                            st.success("Saved to favorites!", icon="heart-filled")
 
                     # SIMILAR
                     sim_recs = get_similar_restaurants_with_score(rest_name, top_n=2)
@@ -349,7 +327,9 @@ def page_dashboard():
         favs = cur.fetchall()
         if favs:
             for (r,) in favs:
-                st.button(r, key=f"fav_dash_{r}", use_container_width=True)
+                if st.button(r, key=f"fav_dash_{r}", use_container_width=True):
+                    st.session_state.open_expanders = {f"exp_{r}"}
+                    st.rerun()
         else:
             st.info("No favorites yet.")
         st.subheader("Your Ratings")
@@ -378,6 +358,7 @@ def sidebar_profile():
         st.markdown(f"### Hi, **{st.session_state.username}**")
         st.markdown("---")
         if st.button("Home", use_container_width=True):
+            st.session_state.open_expanders = set()
             st.rerun()
         if st.button("Logout", use_container_width=True):
             for k in list(st.session_state.keys()): del st.session_state[k]
@@ -405,6 +386,27 @@ def recommend_by_location(location, cuisine=None, top_n=5):
     candidates = candidates.copy()
     candidates['Score'] = scores
     return candidates.sort_values('Score', ascending=False).head(top_n)
+
+# ========================================
+# AUTH
+# ========================================
+def hash_pw(pw): return hashlib.sha256(pw.encode()).hexdigest()
+def register(u, p, e): 
+    try:
+        u = u.strip()
+        if not u or not p or not e: return False
+        cur.execute("SELECT id FROM users WHERE username=?", (u,))
+        if cur.fetchone(): return False
+        cur.execute("INSERT INTO users (username, password_hash, email) VALUES (?, ?, ?)", (u, hash_pw(p), e))
+        conn.commit()
+        return True
+    except: return False
+def login(u, p):
+    try:
+        cur.execute("SELECT id FROM users WHERE username=? AND password_hash=?", (u, hash_pw(p)))
+        row = cur.fetchone()
+        return row[0] if row else None
+    except: return None
 
 # ========================================
 # MAIN ROUTING
