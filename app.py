@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: VIEW BUTTON WORKS + DETAIL PAGE + SIMILAR + NO WHITE BARS
+# FINAL: NO WHITE RECTANGLE + CLEAN UI + DETAIL PAGE WORKS
 
 import streamlit as st
 import pandas as pd
@@ -15,7 +15,7 @@ import os
 # ========================================
 st.set_page_config(page_title="Foodmandu Recommender", layout="centered", initial_sidebar_state="expanded")
 
-# PROFESSIONAL STYLING – REMOVE ALL WHITE BARS
+# PROFESSIONAL STYLING – REMOVE ALL WHITE BARS & PLACEHOLDERS
 st.markdown("""
 <style>
     .main {background-color: #f8f9fa; padding: 0 !important; margin: 0 !important;}
@@ -26,19 +26,25 @@ st.markdown("""
     .stDeployButton {display: none !important;}
     div[data-testid="stToolbar"] {display: none !important;}
     
+    /* REMOVE WHITE RECTANGLE */
+    .stTextInput > div > div > input::placeholder {color: transparent !important;}
+    .stTextInput > div > div > input {background-color: #2d3748 !important; color: white !important; border-radius: 10px !important;}
+    .stTextInput > label {color: #e2e8f0 !important; font-weight: 600 !important;}
+    
     .login-container {
-        max-width: 420px; margin: 2rem auto; padding: 2.5rem; background: white; 
-        border-radius: 16px; box-shadow: 0 12px 35px rgba(0,0,0,0.1);
+        max-width: 420px; margin: 2rem auto; padding: 2.5rem; background: #1a202c; 
+        border-radius: 16px; box-shadow: 0 12px 35px rgba(0,0,0,0.3); color: white;
     }
-    .title {font-size: 2.8rem; font-weight: 800; color: #007bff; text-align: center; margin: 1rem 0 0.5rem;}
-    .subtitle {text-align: center; color: #666; font-size: 1.1rem; margin-bottom: 2rem;}
-    .stButton>button {background: #007bff; color: white; border-radius: 10px; font-weight: 600; padding: 0.7rem; width: 100%; border: none;}
-    .stButton>button:hover {background: #0056b3;}
+    .title {font-size: 2.8rem; font-weight: 800; color: #4299e1; text-align: center; margin: 1rem 0 0.5rem;}
+    .subtitle {text-align: center; color: #a0aec0; font-size: 1.1rem; margin-bottom: 2rem;}
+    .stButton>button {background: #4299e1; color: white; border-radius: 10px; font-weight: 600; padding: 0.7rem; width: 100%; border: none;}
+    .stButton>button:hover {background: #3182ce;}
+    .stButton > button[type="secondary"] {background: #48bb78 !important; color: white !important;}
+    .stButton > button[type="secondary"]:hover {background: #38a169 !important;}
     .card {background: white; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
-    .tag {background: #007bff; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
+    .tag {background: #4299e1; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
     .detail-card {background: white; border-radius: 16px; padding: 2rem; margin: 1.5rem 0; box-shadow: 0 8px 25px rgba(0,0,0,0.1);}
     .similar-card {background: #f8f9fa; border-radius: 12px; padding: 1.5rem; margin: 1rem 0; border: 1px solid #dee2e6;}
-    .similar-card:hover {box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-2px);}
     .info-row {display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #e9ecef;}
     .info-label {font-weight: 600; color: #495057;}
     .info-value {color: #212529;}
@@ -157,61 +163,15 @@ def login(u, p):
     except: return None
 
 # ========================================
-# RECOMMEND
-# ========================================
-def recommend_by_location(location, cuisine=None, top_n=5):
-    loc_clean = location.lower().strip()
-    mask = rest_metadata['Location'].str.lower().str.contains(loc_clean, na=False)
-    candidates = rest_metadata[mask]
-    if cuisine and cuisine != "Any":
-        candidates = candidates[candidates['Cuisine Type'].str.contains(cuisine, case=False, na=False)]
-    if candidates.empty: return pd.DataFrame()
-    scores = candidates['Cuisine Type'].apply(lambda x: 2.0 if cuisine and cuisine.lower() in x.lower() else 1.0)
-    candidates = candidates.copy()
-    candidates['Score'] = scores
-    return candidates.sort_values('Score', ascending=False).head(top_n)
-
-def get_similar_restaurants(rest_name, top_n=5):
-    if rest_name not in similarity_df.index:
-        return pd.DataFrame()
-    sim_scores = similarity_df.loc[rest_name].sort_values(ascending=False).iloc[1:top_n+1]
-    return rest_metadata[rest_metadata['Restaurant Name'].isin(sim_scores.index)]
-
-# ========================================
-# SIDEBAR
-# ========================================
-def sidebar_profile():
-    with st.sidebar:
-        st.image("https://upload.wikimedia.org/wikipedia/commons/5/5e/Nilai_University_Logo.png", width=100)
-        st.markdown(f"### Hi, **{st.session_state.username}**")
-        st.markdown("---")
-        if st.button("Home", use_container_width=True):
-            for key in ['selected_rest', 'show_similar']: 
-                if key in st.session_state: del st.session_state[key]
-            st.rerun()
-        if st.button("Logout", use_container_width=True):
-            for k in list(st.session_state.keys()): del st.session_state[k]
-            st.rerun()
-        st.markdown("---")
-        uid = st.session_state.user_id
-        try:
-            cur.execute("SELECT COUNT(*) FROM interactions WHERE user_id=?", (uid,))
-            interactions = cur.fetchone()[0]
-            search_count = get_preference(uid, 'search_count') or 0
-        except: interactions = search_count = 0
-        last_loc = get_preference(uid, 'last_location') or "Not set"
-        st.write(f"**Searches:** `{search_count}`")
-        st.write(f"**Selections:** `{interactions}`")
-        st.write(f"**Last Area:** `{last_loc}`")
-
-# ========================================
-# AUTH PAGE
+# AUTH PAGE – NO WHITE RECTANGLE
 # ========================================
 def page_auth():
     st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Find the best restaurants near you</div>', unsafe_allow_html=True)
+
     with st.container():
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
+
         if 'show_register' not in st.session_state: st.session_state.show_register = False
         if 'reg_success' not in st.session_state: st.session_state.reg_success = False
 
@@ -221,10 +181,11 @@ def page_auth():
                 st.success("Account created! Please login.")
                 st.session_state.reg_success = False
                 st.markdown("---")
+
             with st.form("register_form"):
-                reg_u = st.text_input("Username", key="reg_u")
-                reg_p = st.text_input("Password", type="password", key="reg_p")
-                reg_e = st.text_input("Email", key="reg_e")
+                reg_u = st.text_input("Username", placeholder="Enter username", key="reg_u")
+                reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
+                reg_e = st.text_input("Email", placeholder="your@email.com", key="reg_e")
                 col1, col2 = st.columns(2)
                 with col1: reg_submit = st.form_submit_button("Create Account")
                 with col2: back = st.form_submit_button("Back to Login")
@@ -238,8 +199,8 @@ def page_auth():
         else:
             st.markdown("### Login")
             with st.form("login_form"):
-                username = st.text_input("Username")
-                password = st.text_input("Password", type="password")
+                username = st.text_input("Username", placeholder="Enter username")  # LABEL + PLACEHOLDER
+                password = st.text_input("Password", type="password", placeholder="Enter password")  # LABEL + PLACEHOLDER
                 submit = st.form_submit_button("Login")
                 if submit:
                     uid = login(username, password)
@@ -254,6 +215,7 @@ def page_auth():
             if st.button("Create New Account", use_container_width=True, type="secondary"):
                 st.session_state.show_register = True
                 st.rerun()
+
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ========================================
@@ -368,7 +330,7 @@ def page_main():
                     """, unsafe_allow_html=True)
                 with col_btn:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    view_key = f"view_{row['Restaurant Name']}_{uid}_{location}"  # UNIQUE KEY
+                    view_key = f"view_{row['Restaurant Name']}_{uid}_{location}"
                     if st.button("View", key=view_key, use_container_width=True):
                         st.session_state.selected_rest = row['Restaurant Name']
                         log_interaction(uid, row['Restaurant Name'], "clicked")
@@ -412,6 +374,54 @@ def page_dashboard():
             else:
                 st.info("No activity yet.")
         except: st.info("No activity log.")
+
+# ========================================
+# RECOMMEND & SIMILAR
+# ========================================
+def recommend_by_location(location, cuisine=None, top_n=5):
+    loc_clean = location.lower().strip()
+    mask = rest_metadata['Location'].str.lower().str.contains(loc_clean, na=False)
+    candidates = rest_metadata[mask]
+    if cuisine and cuisine != "Any":
+        candidates = candidates[candidates['Cuisine Type'].str.contains(cuisine, case=False, na=False)]
+    if candidates.empty: return pd.DataFrame()
+    scores = candidates['Cuisine Type'].apply(lambda x: 2.0 if cuisine and cuisine.lower() in x.lower() else 1.0)
+    candidates = candidates.copy()
+    candidates['Score'] = scores
+    return candidates.sort_values('Score', ascending=False).head(top_n)
+
+def get_similar_restaurants(rest_name, top_n=5):
+    if rest_name not in similarity_df.index:
+        return pd.DataFrame()
+    sim_scores = similarity_df.loc[rest_name].sort_values(ascending=False).iloc[1:top_n+1]
+    return rest_metadata[rest_metadata['Restaurant Name'].isin(sim_scores.index)]
+
+# ========================================
+# SIDEBAR
+# ========================================
+def sidebar_profile():
+    with st.sidebar:
+        st.image("https://upload.wikimedia.org/wikipedia/commons/5/5e/Nilai_University_Logo.png", width=100)
+        st.markdown(f"### Hi, **{st.session_state.username}**")
+        st.markdown("---")
+        if st.button("Home", use_container_width=True):
+            for key in ['selected_rest', 'show_similar']: 
+                if key in st.session_state: del st.session_state[key]
+            st.rerun()
+        if st.button("Logout", use_container_width=True):
+            for k in list(st.session_state.keys()): del st.session_state[k]
+            st.rerun()
+        st.markdown("---")
+        uid = st.session_state.user_id
+        try:
+            cur.execute("SELECT COUNT(*) FROM interactions WHERE user_id=?", (uid,))
+            interactions = cur.fetchone()[0]
+            search_count = get_preference(uid, 'search_count') or 0
+        except: interactions = search_count = 0
+        last_loc = get_preference(uid, 'last_location') or "Not set"
+        st.write(f"**Searches:** `{search_count}`")
+        st.write(f"**Selections:** `{interactions}`")
+        st.write(f"**Last Area:** `{last_loc}`")
 
 # ========================================
 # MAIN ROUTING
