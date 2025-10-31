@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: REGISTER BUTTON WORKS + DB IN /tmp/ + NO REDIRECT
+# FINAL: NO READONLY ERROR + REGISTER WORKS
 
 import streamlit as st
 import pandas as pd
@@ -10,7 +10,6 @@ import pickle
 import sqlite3
 import hashlib
 import os
-import shutil
 from datetime import datetime
 
 # ========================================
@@ -36,44 +35,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 MODEL_DIR = "recommender_model"
-DB_SOURCE = "restaurant_recommender.db"
-DB_PATH = "/tmp/restaurant_recommender.db"  # Writable
+DB_PATH = "/tmp/restaurant_recommender.db"  # ALWAYS WRITABLE
 
 # ========================================
-# COPY DB TO /tmp/
+# ENSURE DB EXISTS IN /tmp/
 # ========================================
-if not os.path.exists(DB_PATH):
-    if os.path.exists(DB_SOURCE):
-        shutil.copy2(DB_SOURCE, DB_PATH)
-    else:
-        open(DB_PATH, 'a').close()
-
-# ========================================
-# LOAD MODEL
-# ========================================
-@st.cache_resource
-def load_model():
-    sim_path = f"{MODEL_DIR}/similarity_matrix.pkl"
-    meta_path = f"{MODEL_DIR}/restaurant_metadata.csv"
-    
-    if not os.path.exists(sim_path) or not os.path.exists(meta_path):
-        st.error("Model files missing. Upload `recommender_model/` folder.")
-        st.stop()
-    
-    with open(sim_path, 'rb') as f:
-        sim_df = pickle.load(f)
-    meta = pd.read_csv(meta_path)
-    meta['Location'] = meta['Location'].str.title()
-    meta['Cuisine Type'] = meta['Cuisine Type'].str.title()
-    return sim_df, meta
-
-similarity_df, rest_metadata = load_model()
-
-# ========================================
-# DATABASE
-# ========================================
-@st.cache_resource
-def get_db():
+def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     cur = conn.cursor()
 
@@ -115,8 +82,30 @@ def get_db():
     conn.commit()
     return conn
 
-conn = get_db()
+# Initialize DB
+conn = init_db()
 cur = conn.cursor()
+
+# ========================================
+# LOAD MODEL
+# ========================================
+@st.cache_resource
+def load_model():
+    sim_path = f"{MODEL_DIR}/similarity_matrix.pkl"
+    meta_path = f"{MODEL_DIR}/restaurant_metadata.csv"
+    
+    if not os.path.exists(sim_path) or not os.path.exists(meta_path):
+        st.error("Model files missing. Upload `recommender_model/` folder.")
+        st.stop()
+    
+    with open(sim_path, 'rb') as f:
+        sim_df = pickle.load(f)
+    meta = pd.read_csv(meta_path)
+    meta['Location'] = meta['Location'].str.title()
+    meta['Cuisine Type'] = meta['Cuisine Type'].str.title()
+    return sim_df, meta
+
+similarity_df, rest_metadata = load_model()
 
 # ========================================
 # DB HELPERS
@@ -175,8 +164,10 @@ def login(u, p):
     try:
         cur.execute("SELECT id FROM users WHERE username=? AND password_hash=?", (u, hash_pw(p)))
         row = cur.fetchone()
-        return row[0] if row else None
-    except: return None
+        return row[0] if row and row[0] else None
+    except Exception as e:
+        st.error(f"Login failed: {str(e)}")
+        return None
 
 # ========================================
 # LOCATIONS
@@ -234,7 +225,7 @@ def sidebar_profile():
         st.write(f"**Last Area:** `{last_loc}`")
 
 # ========================================
-# AUTH PAGE – REGISTER BOX ON BUTTON CLICK
+# AUTH PAGE – REGISTER ON BUTTON
 # ========================================
 def page_auth():
     st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
@@ -243,11 +234,9 @@ def page_auth():
     with st.container():
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
 
-        # Initialize toggle
         if 'show_register' not in st.session_state:
             st.session_state.show_register = False
 
-        # REGISTER FORM
         if st.session_state.show_register:
             st.markdown("### Create Account")
             with st.form("register_form"):
@@ -273,7 +262,6 @@ def page_auth():
                     else:
                         st.error("Username taken or invalid input.")
 
-        # LOGIN FORM
         else:
             st.markdown("### Login")
             with st.form("login_form"):
@@ -291,7 +279,6 @@ def page_auth():
                     else:
                         st.error("Invalid credentials")
 
-            # REGISTER BUTTON — OUTSIDE HTML
             if st.button("Register now", use_container_width=True, type="secondary"):
                 st.session_state.show_register = True
                 st.rerun()
