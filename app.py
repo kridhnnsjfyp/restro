@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: MIN–MAX PRICE RANGE (NO N/A) + SIMILARITY %
+# FINAL: RATING + FAVORITE + PRICE RANGE + SIMILARITY %
 
 import streamlit as st
 import pandas as pd
@@ -61,6 +61,8 @@ st.markdown("""
         background: #48bb78; color: white; padding: 0.2rem 0.6rem; border-radius: 12px; 
         font-size: 0.75rem; font-weight: 600; display: inline-block; margin-left: 0.5rem;
     }
+    .heart {color: #e53e3e; font-size: 1.2rem; cursor: pointer;}
+    .star {color: #fbbf24; font-size: 1.1rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -76,6 +78,7 @@ def init_db():
     cur.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, email TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)')
     cur.execute('CREATE TABLE IF NOT EXISTS preferences (user_id INTEGER PRIMARY KEY, pref_location TEXT, pref_cuisine TEXT, last_location TEXT, search_count INTEGER DEFAULT 0)')
     cur.execute('CREATE TABLE IF NOT EXISTS favorites (user_id INTEGER, restaurant TEXT, UNIQUE(user_id, restaurant))')
+    cur.execute('CREATE TABLE IF NOT EXISTS ratings (user_id INTEGER, restaurant TEXT, rating INTEGER, UNIQUE(user_id, restaurant))')
     cur.execute('CREATE TABLE IF NOT EXISTS interactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, restaurant TEXT, action TEXT, timestamp TEXT DEFAULT CURRENT_TIMESTAMP)')
     conn.commit()
     return conn
@@ -84,7 +87,7 @@ conn = init_db()
 cur = conn.cursor()
 
 # ========================================
-# LOAD MODEL + PRICE RANGE (MIN–MAX)
+# LOAD MODEL + PRICE RANGE
 # ========================================
 @st.cache_resource
 def load_model():
@@ -102,29 +105,17 @@ def load_model():
     meta = pd.read_csv(meta_path)
     meta['Location'] = meta['Location'].str.title()
     meta['Cuisine Type'] = meta['Cuisine Type'].str.title()
-
-    # DEFAULT PRICE RANGE
     meta['Price Range'] = ""
 
-    # LOAD FOOD PRICES
     if os.path.exists(food_path):
         food_df = pd.read_csv(food_path)
         food_df['Restaurant'] = food_df['Restaurant'].str.strip()
         food_df['Price'] = pd.to_numeric(food_df['Price'], errors='coerce')
         food_df = food_df.dropna(subset=['Price'])
-
         if not food_df.empty:
             price_agg = food_df.groupby('Restaurant')['Price'].agg(['min', 'max']).reset_index()
-            price_agg['Range'] = price_agg.apply(
-                lambda x: f"Rs. {int(x['min'])} – Rs. {int(x['max'])}", axis=1
-            )
-            # Merge with metadata
-            meta = meta.merge(
-                price_agg[['Restaurant', 'Range']],
-                left_on='Restaurant Name',
-                right_on='Restaurant',
-                how='left'
-            )
+            price_agg['Range'] = price_agg.apply(lambda x: f"Rs. {int(x['min'])} – Rs. {int(x['max'])}", axis=1)
+            meta = meta.merge(price_agg[['Restaurant', 'Range']], left_on='Restaurant Name', right_on='Restaurant', how='left')
             meta['Price Range'] = meta['Range'].fillna("")
             meta.drop(columns=['Restaurant', 'Range'], inplace=True, errors='ignore')
     return sim_df, meta
@@ -166,8 +157,20 @@ def is_favorite(user_id, rest_name):
 def toggle_favorite(user_id, rest_name):
     if is_favorite(user_id, rest_name):
         cur.execute("DELETE FROM favorites WHERE user_id=? AND restaurant=?", (user_id, rest_name))
+        conn.commit()
+        return False
     else:
         cur.execute("INSERT OR IGNORE INTO favorites (user_id, restaurant) VALUES (?, ?)", (user_id, rest_name))
+        conn.commit()
+        return True
+
+def get_user_rating(user_id, rest_name):
+    cur.execute("SELECT rating FROM ratings WHERE user_id=? AND restaurant=?", (user_id, rest_name))
+    row = cur.fetchone()
+    return row[0] if row else 0
+
+def set_user_rating(user_id, rest_name, rating):
+    cur.execute("INSERT OR REPLACE INTO ratings (user_id, restaurant, rating) VALUES (?, ?, ?)", (user_id, rest_name, rating))
     conn.commit()
 
 def log_interaction(user_id, restaurant, action):
@@ -198,18 +201,6 @@ def login(u, p):
         row = cur.fetchone()
         return row[0] if row else None
     except: return None
-
-# ========================================
-# SIMILARITY WITH %
-# ========================================
-def get_similar_restaurants_with_score(rest_name, top_n=2):
-    if rest_name not in similarity_df.index:
-        return pd.DataFrame()
-    sim_scores = similarity_df.loc[rest_name].sort_values(ascending=False).iloc[1:top_n+1]
-    sim_scores = sim_scores.reset_index()
-    sim_scores.columns = ['Restaurant Name', 'Similarity']
-    sim_scores['Similarity %'] = (sim_scores['Similarity'] * 100).round(1)
-    return rest_metadata[rest_metadata['Restaurant Name'].isin(sim_scores['Restaurant Name'])].merge(sim_scores, on='Restaurant Name')
 
 # ========================================
 # PAGES
@@ -257,6 +248,15 @@ def page_auth():
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
+def get_similar_restaurants_with_score(rest_name, top_n=2):
+    if rest_name not in similarity_df.index:
+        return pd.DataFrame()
+    sim_scores = similarity_df.loc[rest_name].sort_values(ascending=False).iloc[1:top_n+1]
+    sim_scores = sim_scores.reset_index()
+    sim_scores.columns = ['Restaurant Name', 'Similarity']
+    sim_scores['Similarity %'] = (sim_scores['Similarity'] * 100).round(1)
+    return rest_metadata[rest_metadata['Restaurant Name'].isin(sim_scores['Restaurant Name'])].merge(sim_scores, on='Restaurant Name')
+
 def page_main():
     st.markdown('<div class="title">Find Restaurants</div>', unsafe_allow_html=True)
     uid = st.session_state.user_id
@@ -283,24 +283,41 @@ def page_main():
             for _, row in recs.iterrows():
                 rest_name = row['Restaurant Name']
                 price_range = row.get('Price Range', '').strip()
-                rating_str = f"{row.get('rating', 'N/A')}/5" if pd.notna(row.get('rating')) else "N/A"
+                current_rating = get_user_rating(uid, rest_name)
+                is_fav = is_favorite(uid, rest_name)
 
                 with st.expander(f"**{rest_name}**", expanded=False):
                     col_a, col_b = st.columns([4, 1])
                     with col_a:
-                        price_display = f"<strong>Price Range:</strong> {price_range}" if price_range else ""
+                        price_display = f"<strong>Price Range:</strong> {price_range} | " if price_range else ""
                         st.markdown(f"""
                         <p style="margin:0;"><span class="tag">{row['Cuisine Type']}</span> <span class="tag">{row['Location']}</span></p>
-                        <p style="margin:0.5rem 0 0 0;">{price_display} | <strong>Rating:</strong> {rating_str}</p>
+                        <p style="margin:0.5rem 0 0 0;">{price_display}<strong>Rating:</strong> {row.get('rating', 'N/A')}/5</p>
                         """, unsafe_allow_html=True)
-                    with col_b:
-                        fav_label = "Unfavorite" if is_favorite(uid, rest_name) else "Favorite"
-                        if st.button(fav_label, key=f"fav_{rest_name}", use_container_width=True):
-                            toggle_favorite(uid, rest_name)
-                            log_interaction(uid, rest_name, "favorited")
+
+                        # RATING
+                        rating_key = f"rate_{rest_name}_{uid}"
+                        new_rating = st.radio(
+                            "Rate this restaurant:", 
+                            options=[0,1,2,3,4,5], 
+                            index=current_rating,
+                            horizontal=True,
+                            key=rating_key
+                        )
+                        if new_rating != current_rating:
+                            set_user_rating(uid, rest_name, new_rating)
+                            log_interaction(uid, rest_name, f"rated {new_rating}")
+                            st.success(f"Rated {new_rating} stars!")
                             st.rerun()
 
-                    # SIMILAR RESTAURANTS
+                    with col_b:
+                        heart = "filled heart" if is_fav else "empty heart"
+                        if st.button(heart, key=f"fav_{rest_name}", use_container_width=True):
+                            new_fav = toggle_favorite(uid, rest_name)
+                            log_interaction(uid, rest_name, "favorited" if new_fav else "unfavorited")
+                            st.rerun()
+
+                    # SIMILAR
                     sim_recs = get_similar_restaurants_with_score(rest_name, top_n=2)
                     if not sim_recs.empty:
                         st.markdown("**You might also like:**")
@@ -315,8 +332,6 @@ def page_main():
                                 <small>{sim['Cuisine Type']} • {sim['Location']}{sim_price_display}</small>
                             </div>
                             """, unsafe_allow_html=True)
-                    else:
-                        st.caption("No similar restaurants found.")
 
 def page_dashboard():
     st.markdown('<div class="title">Your Dashboard</div>', unsafe_allow_html=True)
@@ -337,6 +352,15 @@ def page_dashboard():
                 st.button(r, key=f"fav_dash_{r}", use_container_width=True)
         else:
             st.info("No favorites yet.")
+        st.subheader("Your Ratings")
+        cur.execute("SELECT restaurant, rating FROM ratings WHERE user_id=? ORDER BY rating DESC", (uid,))
+        ratings = cur.fetchall()
+        if ratings:
+            for r, rating in ratings:
+                stars = "star" * rating
+                st.write(f"**{r}** → {stars} ({rating}/5)")
+        else:
+            st.info("No ratings yet.")
     with col2:
         st.subheader("Recent Activity")
         cur.execute("SELECT restaurant, action, timestamp FROM interactions WHERE user_id=? ORDER BY timestamp DESC LIMIT 10", (uid,))
