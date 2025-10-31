@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: REGISTER WORKS + WHITE TITLE + CENTERED + NO ERRORS
+# FINAL: READONLY DB FIX + REGISTER WORKS + WHITE TITLE
 
 import streamlit as st
 import pandas as pd
@@ -9,8 +9,8 @@ import numpy as np
 import pickle
 import sqlite3
 import hashlib
-import requests
 import os
+import shutil
 from datetime import datetime
 
 # ========================================
@@ -18,7 +18,7 @@ from datetime import datetime
 # ========================================
 st.set_page_config(page_title="Foodmandu Recommender", layout="centered", initial_sidebar_state="expanded")
 
-# PROFESSIONAL & CLEAN STYLING
+# PROFESSIONAL STYLING
 st.markdown("""
 <style>
     .main {background-color: #f8f9fa; padding: 2rem;}
@@ -29,7 +29,6 @@ st.markdown("""
     .stButton>button:hover {background: #0056b3;}
     .card {background: white; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .tag {background: #007bff; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
-    .nilai-logo {display: block; margin: 0 auto 1.5rem; width: 130px; filter: brightness(0) invert(1);}
     a {color: #007bff; text-decoration: none; font-weight: 600;}
     a:hover {text-decoration: underline;}
     .register-link {text-align: center; margin-top: 1rem;}
@@ -37,7 +36,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 MODEL_DIR = "recommender_model"
-DB_PATH = "restaurant_recommender.db"
+DB_SOURCE = "restaurant_recommender.db"
+DB_PATH = "/tmp/restaurant_recommender.db"  # Writable path
+
+# ========================================
+# COPY DB TO WRITABLE LOCATION
+# ========================================
+if not os.path.exists(DB_PATH):
+    if os.path.exists(DB_SOURCE):
+        shutil.copy2(DB_SOURCE, DB_PATH)
+    else:
+        # Create empty DB
+        open(DB_PATH, 'a').close()
 
 # ========================================
 # LOAD MODEL
@@ -61,7 +71,7 @@ def load_model():
 similarity_df, rest_metadata = load_model()
 
 # ========================================
-# DATABASE
+# DATABASE – USE /tmp/
 # ========================================
 @st.cache_resource
 def get_db():
@@ -142,24 +152,29 @@ def set_preference(user_id, **kwargs):
     except: pass
 
 # ========================================
-# AUTH – FIXED REGISTER BUG
+# AUTH – FIXED REGISTRATION
 # ========================================
 def hash_pw(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
 def register(u, p, e): 
     try:
-        # Check if username already exists
+        # Clean input
+        u = u.strip()
+        if not u or not p or not e:
+            return False
+
+        # Check if exists
         cur.execute("SELECT id FROM users WHERE username=?", (u,))
         if cur.fetchone():
-            return False  # Username exists
-        
-        # Insert new user
+            return False
+
+        # Insert
         cur.execute("INSERT INTO users (username, password_hash, email) VALUES (?, ?, ?)",
                     (u, hash_pw(p), e))
         conn.commit()
         return True
     except Exception as e:
-        st.error(f"Registration error: {e}")
+        st.error(f"Registration failed: {str(e)}")
         return False
 
 def login(u, p):
@@ -168,7 +183,7 @@ def login(u, p):
         row = cur.fetchone()
         return row[0] if row else None
     except Exception as e:
-        st.error(f"Login error: {e}")
+        st.error(f"Login failed: {str(e)}")
         return None
 
 # ========================================
@@ -275,7 +290,7 @@ def page_register():
                     st.experimental_set_query_params(page=None)
                     st.rerun()
                 else:
-                    st.error("Username already taken or invalid input.")
+                    st.error("Username taken or invalid input.")
 
         st.markdown('<div class="register-link">Already have an account? <a href="?page=login">Login here</a></div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
