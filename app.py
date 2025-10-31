@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: REGISTER LINK WORKS + WHITE TITLE + CENTERED
+# FINAL: REGISTER LINK WORKS + WHITE TITLE + CENTERED + NO ERRORS
 
 import streamlit as st
 import pandas as pd
@@ -18,7 +18,7 @@ from datetime import datetime
 # ========================================
 st.set_page_config(page_title="Foodmandu Recommender", layout="centered", initial_sidebar_state="expanded")
 
-# PROFESSIONAL STYLING
+# PROFESSIONAL & CLEAN STYLING
 st.markdown("""
 <style>
     .main {background-color: #f8f9fa; padding: 2rem;}
@@ -32,7 +32,7 @@ st.markdown("""
     .nilai-logo {display: block; margin: 0 auto 1.5rem; width: 130px; filter: brightness(0) invert(1);}
     a {color: #007bff; text-decoration: none; font-weight: 600;}
     a:hover {text-decoration: underline;}
-    .css-1d391kg {padding-top: 1rem;}
+    .register-link {text-align: center; margin-top: 1rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -223,7 +223,6 @@ def page_login():
     st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Find the best restaurants near you</div>', unsafe_allow_html=True)
 
-    # Default: Login
     with st.container():
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
         st.markdown("### Login")
@@ -242,12 +241,11 @@ def page_login():
                 else:
                     st.error("Invalid credentials")
 
-        st.markdown("---")
-        st.markdown("Don't have an account? [**Register now**](/register)", unsafe_allow_html=True)
+        st.markdown('<div class="register-link">Don\'t have an account? <a href="?page=register">Register now</a></div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ========================================
-# REGISTER PAGE (Separate route)
+# REGISTER PAGE – FULL SCREEN, WHITE TITLE
 # ========================================
 def page_register():
     st.markdown('<div class="title">Create Account</div>', unsafe_allow_html=True)
@@ -264,11 +262,12 @@ def page_register():
             if reg_submit:
                 if register(reg_u, reg_p, reg_e):
                     st.success("Account created! Please login.")
-                    st.switch_page("app.py")  # Go back to login
+                    st.experimental_set_query_params(page=None)
+                    st.rerun()
                 else:
-                    st.error("Username taken")
+                    st.error("Username already taken")
 
-        st.markdown("Already have an account? [**Login here**](/)", unsafe_allow_html=True)
+        st.markdown('<div class="register-link">Already have an account? <a href="?page=login">Login here</a></div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ========================================
@@ -366,10 +365,12 @@ def page_dashboard():
             st.info("No activity log.")
 
 # ========================================
-# ROUTING
+# ROUTING – FIXED REGISTER LINK
 # ========================================
+page = st.experimental_get_query_params().get("page", [None])[0]
+
 if 'user_id' not in st.session_state:
-    if st.experimental_get_query_params().get("page") == ["register"]:
+    if page == "register":
         page_register()
     else:
         page_login()
