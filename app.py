@@ -40,13 +40,14 @@ def load_model():
 similarity_df, rest_metadata = load_model()
 
 # ========================================
-# DATABASE (SAFE)
+# DATABASE: FIX SCHEMA + SAFE ACCESS
 # ========================================
 @st.cache_resource
 def get_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     cur = conn.cursor()
-    
+
+    # Users
     cur.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,6 +58,7 @@ def get_db():
     )
     ''')
 
+    # Preferences — ENSURE COLUMNS EXIST
     cur.execute('''
     CREATE TABLE IF NOT EXISTS preferences (
         user_id INTEGER PRIMARY KEY,
@@ -66,6 +68,13 @@ def get_db():
     )
     ''')
 
+    # Add missing columns if not exist
+    try:
+        cur.execute("ALTER TABLE preferences ADD COLUMN last_location TEXT")
+    except:
+        pass  # Already exists
+
+    # Interactions
     cur.execute('''
     CREATE TABLE IF NOT EXISTS interactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,7 +99,7 @@ def ensure_preference_row(user_id):
         cur.execute("INSERT OR IGNORE INTO preferences (user_id) VALUES (?)", (user_id,))
         conn.commit()
     except:
-        pass  # Already exists
+        pass
 
 def get_preference(user_id, field):
     ensure_preference_row(user_id)
@@ -134,15 +143,9 @@ def login(u, p):
         return None
 
 # ========================================
-# LOCATION
+# LOCATION LIST (SCROLLABLE)
 # ========================================
-def get_user_city():
-    try:
-        resp = requests.get('https://ipapi.co/json/', timeout=3)
-        city = resp.json().get('city', 'Kathmandu')
-        return city.title() if city else 'Kathmandu'
-    except:
-        return 'Kathmandu'
+all_locations = sorted(rest_metadata['Location'].unique().tolist())
 
 # ========================================
 # RECOMMEND BY LOCATION
@@ -277,23 +280,25 @@ def page_dashboard():
             st.info("No activity log.")
 
 # ========================================
-# PAGE: MAIN
+# PAGE: MAIN – SCROLLABLE LOCATIONS
 # ========================================
 def page_main():
     st.title("Find Restaurants")
     uid = st.session_state.user_id
 
-    default_loc = get_preference(uid, 'last_location') or get_user_city()
+    # Default to last used or first location
+    last_loc = get_preference(uid, 'last_location')
+    default_loc = last_loc if last_loc and last_loc in all_locations else all_locations[0]
 
     col1, col2 = st.columns([3, 1])
     with col1:
-        location = st.text_input("Where are you?", value=default_loc, help="e.g., Putalisadak, Thamel")
+        location = st.selectbox(
+            "Select your area:",
+            options=all_locations,
+            index=all_locations.index(default_loc) if default_loc in all_locations else 0
+        )
     with col2:
-        use_current = st.checkbox("Use my current location", value=True)
-
-    if use_current:
-        location = get_user_city()
-        st.info(f"Detected: **{location}**")
+        st.write("")  # Spacer
 
     cuisine = st.selectbox("Preferred cuisine?", 
                            options=["Any"] + sorted(rest_metadata['Cuisine Type'].unique().tolist()))
