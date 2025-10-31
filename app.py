@@ -417,6 +417,14 @@ def page_restaurant_detail(rest_name):
     # Restaurant Details Card
     st.markdown(f'<div class="title">{rest["Restaurant Name"]}</div>', unsafe_allow_html=True)
     
+    # Format price and rating safely
+    price_val = rest.get('avg_price')
+    price_str = f"Rs. {price_val:.0f}" if pd.notna(price_val) else "N/A"
+    
+    rating_val = rest.get('rating')
+    rating_str = f"{rating_val}/5" if pd.notna(rating_val) else "N/A"
+    stars = '⭐' * int(rating_val) if pd.notna(rating_val) and rating_val > 0 else ''
+    
     st.markdown(f"""
     <div class="detail-card">
         <div class="info-row">
@@ -429,11 +437,11 @@ def page_restaurant_detail(rest_name):
         </div>
         <div class="info-row">
             <span class="info-label">💰 Average Price:</span>
-            <span class="info-value">Rs. {rest.get('avg_price', 'N/A'):.0f if pd.notna(rest.get('avg_price')) else 'N/A'}</span>
+            <span class="info-value">{price_str}</span>
         </div>
         <div class="info-row">
             <span class="info-label">⭐ Rating:</span>
-            <span class="info-value">{rest.get('rating', 'N/A')}/5 {'⭐' * int(rest.get('rating', 0)) if pd.notna(rest.get('rating')) else ''}</span>
+            <span class="info-value">{rating_str} {stars}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -448,6 +456,13 @@ def page_restaurant_detail(rest_name):
             for idx, row in sim_recs.iterrows():
                 col_a, col_b = st.columns([4, 1])
                 
+                # Format price and rating safely
+                price_val = row.get('avg_price')
+                price_str = f"Rs. {price_val:.0f}" if pd.notna(price_val) else "N/A"
+                
+                rating_val = row.get('rating')
+                rating_str = f"{rating_val}/5" if pd.notna(rating_val) else "N/A"
+                
                 with col_a:
                     st.markdown(f"""
                     <div class="similar-card">
@@ -457,8 +472,8 @@ def page_restaurant_detail(rest_name):
                             <span class="tag">{row['Location']}</span>
                         </p>
                         <p style="margin: 0.5rem 0 0 0;">
-                            <strong>Price:</strong> Rs. {row.get('avg_price', 'N/A'):.0f if pd.notna(row.get('avg_price')) else 'N/A'} | 
-                            <strong>Rating:</strong> {row.get('rating', 'N/A')}/5
+                            <strong>Price:</strong> {price_str} | 
+                            <strong>Rating:</strong> {rating_str}
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
@@ -502,6 +517,14 @@ def page_main():
             for _, row in recs.iterrows():
                 col_card, col_btn = st.columns([4, 1])
                 
+                # Format price safely
+                price_val = row.get('avg_price')
+                price_str = f"Rs. {price_val:.0f}" if pd.notna(price_val) else "N/A"
+                
+                # Format rating safely
+                rating_val = row.get('rating')
+                rating_str = f"{rating_val}/5" if pd.notna(rating_val) else "N/A"
+                
                 with col_card:
                     st.markdown(f"""
                     <div class="card">
@@ -510,7 +533,7 @@ def page_main():
                             <span class="tag">{row['Cuisine Type']}</span>
                             <span class="tag">{row['Location']}</span>
                         </p>
-                        <p style="margin:0.5rem 0 0 0;"><strong>💰 Price:</strong> Rs. {row.get('avg_price', 'N/A'):.0f if pd.notna(row.get('avg_price')) else 'N/A'} | <strong>⭐ Rating:</strong> {row.get('rating', 'N/A')}/5</p>
+                        <p style="margin:0.5rem 0 0 0;"><strong>💰 Price:</strong> {price_str} | <strong>⭐ Rating:</strong> {rating_str}</p>
                     </div>
                     """, unsafe_allow_html=True)
                 
