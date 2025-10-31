@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: PRICE RANGE + SIMILARITY % + NO AVG PRICE
+# FINAL: MIN–MAX PRICE RANGE (NO N/A) + SIMILARITY %
 
 import streamlit as st
 import pandas as pd
@@ -84,36 +84,49 @@ conn = init_db()
 cur = conn.cursor()
 
 # ========================================
-# LOAD MODEL + FOOD PRICES
+# LOAD MODEL + PRICE RANGE (MIN–MAX)
 # ========================================
 @st.cache_resource
 def load_model():
     sim_path = f"{MODEL_DIR}/similarity_matrix.pkl"
     meta_path = f"{MODEL_DIR}/restaurant_metadata.csv"
+    food_path = f"{MODEL_DIR}/food_prices.csv"
+
     if not os.path.exists(sim_path) or not os.path.exists(meta_path):
         st.error("Model files missing. Upload `recommender_model/` folder.")
         st.stop()
+
     with open(sim_path, 'rb') as f:
         sim_df = pickle.load(f)
+
     meta = pd.read_csv(meta_path)
     meta['Location'] = meta['Location'].str.title()
     meta['Cuisine Type'] = meta['Cuisine Type'].str.title()
-    
-    # LOAD FOOD PRICES (ASSUMED IN SAME FOLDER)
-    food_path = f"{MODEL_DIR}/food_prices.csv"  # You must include this
+
+    # DEFAULT PRICE RANGE
+    meta['Price Range'] = ""
+
+    # LOAD FOOD PRICES
     if os.path.exists(food_path):
         food_df = pd.read_csv(food_path)
         food_df['Restaurant'] = food_df['Restaurant'].str.strip()
         food_df['Price'] = pd.to_numeric(food_df['Price'], errors='coerce')
-        # Group by restaurant → min & max price
-        price_range = food_df.groupby('Restaurant')['Price'].agg(['min', 'max']).reset_index()
-        price_range['Range'] = price_range.apply(lambda x: f"Rs. {int(x['min'])} – Rs. {int(x['max'])}" if pd.notna(x['min']) and pd.notna(x['max']) else "N/A", axis=1)
-        meta = meta.merge(price_range[['Restaurant', 'Range']], left_on='Restaurant Name', right_on='Restaurant', how='left')
-        meta['Price Range'] = meta['Range'].fillna("N/A")
-        meta.drop(columns=['Restaurant', 'Range'], inplace=True)
-    else:
-        meta['Price Range'] = "N/A"
-    
+        food_df = food_df.dropna(subset=['Price'])
+
+        if not food_df.empty:
+            price_agg = food_df.groupby('Restaurant')['Price'].agg(['min', 'max']).reset_index()
+            price_agg['Range'] = price_agg.apply(
+                lambda x: f"Rs. {int(x['min'])} – Rs. {int(x['max'])}", axis=1
+            )
+            # Merge with metadata
+            meta = meta.merge(
+                price_agg[['Restaurant', 'Range']],
+                left_on='Restaurant Name',
+                right_on='Restaurant',
+                how='left'
+            )
+            meta['Price Range'] = meta['Range'].fillna("")
+            meta.drop(columns=['Restaurant', 'Range'], inplace=True, errors='ignore')
     return sim_df, meta
 
 similarity_df, rest_metadata = load_model()
@@ -187,6 +200,18 @@ def login(u, p):
     except: return None
 
 # ========================================
+# SIMILARITY WITH %
+# ========================================
+def get_similar_restaurants_with_score(rest_name, top_n=2):
+    if rest_name not in similarity_df.index:
+        return pd.DataFrame()
+    sim_scores = similarity_df.loc[rest_name].sort_values(ascending=False).iloc[1:top_n+1]
+    sim_scores = sim_scores.reset_index()
+    sim_scores.columns = ['Restaurant Name', 'Similarity']
+    sim_scores['Similarity %'] = (sim_scores['Similarity'] * 100).round(1)
+    return rest_metadata[rest_metadata['Restaurant Name'].isin(sim_scores['Restaurant Name'])].merge(sim_scores, on='Restaurant Name')
+
+# ========================================
 # PAGES
 # ========================================
 def page_auth():
@@ -232,15 +257,6 @@ def page_auth():
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-def get_similar_restaurants_with_score(rest_name, top_n=2):
-    if rest_name not in similarity_df.index:
-        return pd.DataFrame()
-    sim_scores = similarity_df.loc[rest_name].sort_values(ascending=False).iloc[1:top_n+1]
-    sim_scores = sim_scores.reset_index()
-    sim_scores.columns = ['Restaurant Name', 'Similarity']
-    sim_scores['Similarity %'] = (sim_scores['Similarity'] * 100).round(1)
-    return rest_metadata[rest_metadata['Restaurant Name'].isin(sim_scores['Restaurant Name'])].merge(sim_scores, on='Restaurant Name')
-
 def page_main():
     st.markdown('<div class="title">Find Restaurants</div>', unsafe_allow_html=True)
     uid = st.session_state.user_id
@@ -266,15 +282,16 @@ def page_main():
             st.success(f"Found {len(recs)} restaurant(s) in **{location}**")
             for _, row in recs.iterrows():
                 rest_name = row['Restaurant Name']
-                price_range = row.get('Price Range', 'N/A')
+                price_range = row.get('Price Range', '').strip()
                 rating_str = f"{row.get('rating', 'N/A')}/5" if pd.notna(row.get('rating')) else "N/A"
 
                 with st.expander(f"**{rest_name}**", expanded=False):
                     col_a, col_b = st.columns([4, 1])
                     with col_a:
+                        price_display = f"<strong>Price Range:</strong> {price_range}" if price_range else ""
                         st.markdown(f"""
                         <p style="margin:0;"><span class="tag">{row['Cuisine Type']}</span> <span class="tag">{row['Location']}</span></p>
-                        <p style="margin:0.5rem 0 0 0;"><strong>Price Range:</strong> {price_range} | <strong>Rating:</strong> {rating_str}</p>
+                        <p style="margin:0.5rem 0 0 0;">{price_display} | <strong>Rating:</strong> {rating_str}</p>
                         """, unsafe_allow_html=True)
                     with col_b:
                         fav_label = "Unfavorite" if is_favorite(uid, rest_name) else "Favorite"
@@ -283,18 +300,19 @@ def page_main():
                             log_interaction(uid, rest_name, "favorited")
                             st.rerun()
 
-                    # SIMILAR RESTAURANTS WITH %
+                    # SIMILAR RESTAURANTS
                     sim_recs = get_similar_restaurants_with_score(rest_name, top_n=2)
                     if not sim_recs.empty:
                         st.markdown("**You might also like:**")
                         for _, sim in sim_recs.iterrows():
-                            sim_price = sim.get('Price Range', 'N/A')
+                            sim_price = sim.get('Price Range', '').strip()
                             sim_pct = sim.get('Similarity %', 0)
+                            sim_price_display = f" • {sim_price}" if sim_price else ""
                             st.markdown(f"""
                             <div class="similar-card">
                                 <strong>{sim['Restaurant Name']}</strong> 
                                 <span class="similarity-badge">{sim_pct}% similar</span><br>
-                                <small>{sim['Cuisine Type']} • {sim['Location']} • {sim_price}</small>
+                                <small>{sim['Cuisine Type']} • {sim['Location']}{sim_price_display}</small>
                             </div>
                             """, unsafe_allow_html=True)
                     else:
@@ -332,6 +350,7 @@ def page_dashboard():
 
 def sidebar_profile():
     with st.sidebar:
+        st.image("https://upload.wikimedia.org/wikipedia/commons/5/5e/Nilai_University_Logo.png", width=100)
         st.markdown(f"### Hi, **{st.session_state.username}**")
         st.markdown("---")
         if st.button("Home", use_container_width=True):
