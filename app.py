@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: NO REDIRECT + REGISTER BOX ON CLICK + DB WORKS
+# FINAL: REGISTER BUTTON WORKS + DB IN /tmp/ + NO REDIRECT
 
 import streamlit as st
 import pandas as pd
@@ -29,9 +29,9 @@ st.markdown("""
     .stButton>button:hover {background: #0056b3;}
     .card {background: white; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .tag {background: #007bff; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
-    .register-link {text-align: center; margin-top: 1rem; font-weight: 600;}
-    a {color: #007bff; text-decoration: none;}
-    a:hover {text-decoration: underline;}
+    .register-link {text-align: center; margin-top: 1rem;}
+    .stButton > button[kind="secondary"] {background: #6c757d; color: white;}
+    .stButton > button[kind="secondary"]:hover {background: #5a6268;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -40,7 +40,7 @@ DB_SOURCE = "restaurant_recommender.db"
 DB_PATH = "/tmp/restaurant_recommender.db"  # Writable
 
 # ========================================
-# COPY DB TO /tmp/ IF NEEDED
+# COPY DB TO /tmp/
 # ========================================
 if not os.path.exists(DB_PATH):
     if os.path.exists(DB_SOURCE):
@@ -168,7 +168,7 @@ def register(u, p, e):
         conn.commit()
         return True
     except Exception as e:
-        st.error(f"Error: {str(e)}")
+        st.error(f"Registration failed: {str(e)}")
         return False
 
 def login(u, p):
@@ -217,7 +217,7 @@ def sidebar_profile():
             st.rerun()
         
         st.markdown("---")
-        st.markdown("#### Stats")
+        st.markdown("#### Your Stats")
         
         uid = st.session_state.user_id
         try:
@@ -234,7 +234,7 @@ def sidebar_profile():
         st.write(f"**Last Area:** `{last_loc}`")
 
 # ========================================
-# LOGIN + REGISTER IN SAME PAGE
+# AUTH PAGE – REGISTER BOX ON BUTTON CLICK
 # ========================================
 def page_auth():
     st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
@@ -243,23 +243,27 @@ def page_auth():
     with st.container():
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
 
-        # Toggle between Login and Register
+        # Initialize toggle
         if 'show_register' not in st.session_state:
             st.session_state.show_register = False
 
+        # REGISTER FORM
         if st.session_state.show_register:
             st.markdown("### Create Account")
             with st.form("register_form"):
                 reg_u = st.text_input("Username", placeholder="Choose username", key="reg_u")
                 reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
                 reg_e = st.text_input("Email", placeholder="Your email", key="reg_e")
+                
                 col1, col2 = st.columns(2)
                 with col1:
                     reg_submit = st.form_submit_button("Create Account")
                 with col2:
-                    if st.form_submit_button("Back to Login"):
-                        st.session_state.show_register = False
-                        st.rerun()
+                    back = st.form_submit_button("Back to Login")
+
+                if back:
+                    st.session_state.show_register = False
+                    st.rerun()
 
                 if reg_submit:
                     if register(reg_u, reg_p, reg_e):
@@ -268,6 +272,8 @@ def page_auth():
                         st.rerun()
                     else:
                         st.error("Username taken or invalid input.")
+
+        # LOGIN FORM
         else:
             st.markdown("### Login")
             with st.form("login_form"):
@@ -285,24 +291,12 @@ def page_auth():
                     else:
                         st.error("Invalid credentials")
 
-            st.markdown('<div class="register-link">Don\'t have an account? <a href="#" id="reg-link">Register now</a></div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            # REGISTER BUTTON — OUTSIDE HTML
+            if st.button("Register now", use_container_width=True, type="secondary"):
+                st.session_state.show_register = True
+                st.rerun()
 
-        # JavaScript to toggle register form
-        st.markdown("""
-        <script>
-        document.getElementById("reg-link").addEventListener("click", function(e) {
-            e.preventDefault();
-            window.parent.document.querySelectorAll('section')[0].__vue_app__._instance.proxy.$router.push({ query: { show_register: 'true' } });
-            location.reload();
-        });
-        </script>
-        """, unsafe_allow_html=True)
-
-        # Trigger register via URL
-        if st.experimental_get_query_params().get("show_register") == ["true"]:
-            st.session_state.show_register = True
-            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ========================================
 # MAIN PAGE
