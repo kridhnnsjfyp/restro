@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: READONLY DB FIX + REGISTER WORKS + WHITE TITLE
+# FINAL: NO REDIRECT + REGISTER BOX ON CLICK + DB WORKS
 
 import streamlit as st
 import pandas as pd
@@ -29,24 +29,23 @@ st.markdown("""
     .stButton>button:hover {background: #0056b3;}
     .card {background: white; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .tag {background: #007bff; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
-    a {color: #007bff; text-decoration: none; font-weight: 600;}
+    .register-link {text-align: center; margin-top: 1rem; font-weight: 600;}
+    a {color: #007bff; text-decoration: none;}
     a:hover {text-decoration: underline;}
-    .register-link {text-align: center; margin-top: 1rem;}
 </style>
 """, unsafe_allow_html=True)
 
 MODEL_DIR = "recommender_model"
 DB_SOURCE = "restaurant_recommender.db"
-DB_PATH = "/tmp/restaurant_recommender.db"  # Writable path
+DB_PATH = "/tmp/restaurant_recommender.db"  # Writable
 
 # ========================================
-# COPY DB TO WRITABLE LOCATION
+# COPY DB TO /tmp/ IF NEEDED
 # ========================================
 if not os.path.exists(DB_PATH):
     if os.path.exists(DB_SOURCE):
         shutil.copy2(DB_SOURCE, DB_PATH)
     else:
-        # Create empty DB
         open(DB_PATH, 'a').close()
 
 # ========================================
@@ -71,7 +70,7 @@ def load_model():
 similarity_df, rest_metadata = load_model()
 
 # ========================================
-# DATABASE – USE /tmp/
+# DATABASE
 # ========================================
 @st.cache_resource
 def get_db():
@@ -152,29 +151,24 @@ def set_preference(user_id, **kwargs):
     except: pass
 
 # ========================================
-# AUTH – FIXED REGISTRATION
+# AUTH
 # ========================================
 def hash_pw(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
 def register(u, p, e): 
     try:
-        # Clean input
         u = u.strip()
         if not u or not p or not e:
             return False
-
-        # Check if exists
         cur.execute("SELECT id FROM users WHERE username=?", (u,))
         if cur.fetchone():
             return False
-
-        # Insert
         cur.execute("INSERT INTO users (username, password_hash, email) VALUES (?, ?, ?)",
                     (u, hash_pw(p), e))
         conn.commit()
         return True
     except Exception as e:
-        st.error(f"Registration failed: {str(e)}")
+        st.error(f"Error: {str(e)}")
         return False
 
 def login(u, p):
@@ -182,9 +176,7 @@ def login(u, p):
         cur.execute("SELECT id FROM users WHERE username=? AND password_hash=?", (u, hash_pw(p)))
         row = cur.fetchone()
         return row[0] if row else None
-    except Exception as e:
-        st.error(f"Login failed: {str(e)}")
-        return None
+    except: return None
 
 # ========================================
 # LOCATIONS
@@ -225,7 +217,7 @@ def sidebar_profile():
             st.rerun()
         
         st.markdown("---")
-        st.markdown("#### Your Stats")
+        st.markdown("#### Stats")
         
         uid = st.session_state.user_id
         try:
@@ -242,58 +234,75 @@ def sidebar_profile():
         st.write(f"**Last Area:** `{last_loc}`")
 
 # ========================================
-# LOGIN PAGE
+# LOGIN + REGISTER IN SAME PAGE
 # ========================================
-def page_login():
+def page_auth():
     st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Find the best restaurants near you</div>', unsafe_allow_html=True)
 
     with st.container():
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        st.markdown("### Login")
-        with st.form("login_form"):
-            username = st.text_input("Username", placeholder="Enter username")
-            password = st.text_input("Password", type="password", placeholder="Enter password")
-            submit = st.form_submit_button("Login", use_container_width=True)
-            if submit:
-                uid = login(username, password)
-                if uid:
-                    st.session_state.user_id = uid
-                    st.session_state.username = username
-                    ensure_preference_row(uid)
-                    st.success("Login successful!")
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials")
 
-        st.markdown('<div class="register-link">Don\'t have an account? <a href="?page=register">Register now</a></div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        # Toggle between Login and Register
+        if 'show_register' not in st.session_state:
+            st.session_state.show_register = False
 
-# ========================================
-# REGISTER PAGE
-# ========================================
-def page_register():
-    st.markdown('<div class="title">Create Account</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Join Foodmandu Recommender</div>', unsafe_allow_html=True)
+        if st.session_state.show_register:
+            st.markdown("### Create Account")
+            with st.form("register_form"):
+                reg_u = st.text_input("Username", placeholder="Choose username", key="reg_u")
+                reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
+                reg_e = st.text_input("Email", placeholder="Your email", key="reg_e")
+                col1, col2 = st.columns(2)
+                with col1:
+                    reg_submit = st.form_submit_button("Create Account")
+                with col2:
+                    if st.form_submit_button("Back to Login"):
+                        st.session_state.show_register = False
+                        st.rerun()
 
-    with st.container():
-        st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        st.markdown("### Register")
-        with st.form("register_form"):
-            reg_u = st.text_input("Username", placeholder="Choose username", key="reg_u")
-            reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
-            reg_e = st.text_input("Email", placeholder="Your email", key="reg_e")
-            reg_submit = st.form_submit_button("Create Account", use_container_width=True)
-            if reg_submit:
-                if register(reg_u, reg_p, reg_e):
-                    st.success("Account created! Please login.")
-                    st.experimental_set_query_params(page=None)
-                    st.rerun()
-                else:
-                    st.error("Username taken or invalid input.")
+                if reg_submit:
+                    if register(reg_u, reg_p, reg_e):
+                        st.success("Account created! Please login.")
+                        st.session_state.show_register = False
+                        st.rerun()
+                    else:
+                        st.error("Username taken or invalid input.")
+        else:
+            st.markdown("### Login")
+            with st.form("login_form"):
+                username = st.text_input("Username", placeholder="Enter username")
+                password = st.text_input("Password", type="password", placeholder="Enter password")
+                submit = st.form_submit_button("Login", use_container_width=True)
+                if submit:
+                    uid = login(username, password)
+                    if uid:
+                        st.session_state.user_id = uid
+                        st.session_state.username = username
+                        ensure_preference_row(uid)
+                        st.success("Login successful!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials")
 
-        st.markdown('<div class="register-link">Already have an account? <a href="?page=login">Login here</a></div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('<div class="register-link">Don\'t have an account? <a href="#" id="reg-link">Register now</a></div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # JavaScript to toggle register form
+        st.markdown("""
+        <script>
+        document.getElementById("reg-link").addEventListener("click", function(e) {
+            e.preventDefault();
+            window.parent.document.querySelectorAll('section')[0].__vue_app__._instance.proxy.$router.push({ query: { show_register: 'true' } });
+            location.reload();
+        });
+        </script>
+        """, unsafe_allow_html=True)
+
+        # Trigger register via URL
+        if st.experimental_get_query_params().get("show_register") == ["true"]:
+            st.session_state.show_register = True
+            st.rerun()
 
 # ========================================
 # MAIN PAGE
@@ -390,15 +399,10 @@ def page_dashboard():
             st.info("No activity log.")
 
 # ========================================
-# ROUTING
+# MAIN ROUTING
 # ========================================
-page = st.experimental_get_query_params().get("page", [None])[0]
-
 if 'user_id' not in st.session_state:
-    if page == "register":
-        page_register()
-    else:
-        page_login()
+    page_auth()
 else:
     sidebar_profile()
     tab1, tab2 = st.tabs(["Search", "Dashboard"])
