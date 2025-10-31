@@ -15,6 +15,20 @@ from datetime import datetime
 # ========================================
 st.set_page_config(page_title="Foodmandu Recommender", layout="wide", initial_sidebar_state="expanded")
 
+# Professional Styling
+st.markdown("""
+<style>
+    .main {background-color: #f8f9fa;}
+    .stButton>button {background-color: #ff6b35; color: white; border-radius: 8px; font-weight: bold;}
+    .stButton>button:hover {background-color: #e55a2b;}
+    .css-1d391kg {padding: 1rem 1.5rem;}
+    .restaurant-card {padding: 1rem; border: 1px solid #ddd; border-radius: 10px; margin: 0.5rem 0; background: white;}
+    .title {font-size: 2.5rem; font-weight: 700; color: #1a1a1a; text-align: center; margin-bottom: 0.5rem;}
+    .subtitle {text-align: center; color: #666; margin-bottom: 2rem;}
+    .nilai-logo {display: block; margin: 0 auto 1rem; width: 150px;}
+</style>
+""", unsafe_allow_html=True)
+
 MODEL_DIR = "recommender_model"
 DB_PATH = "restaurant_recommender.db"
 
@@ -40,14 +54,13 @@ def load_model():
 similarity_df, rest_metadata = load_model()
 
 # ========================================
-# DATABASE: FIX SCHEMA + SAFE ACCESS
+# DATABASE
 # ========================================
 @st.cache_resource
 def get_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     cur = conn.cursor()
 
-    # Users
     cur.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,23 +71,22 @@ def get_db():
     )
     ''')
 
-    # Preferences — ENSURE COLUMNS EXIST
     cur.execute('''
     CREATE TABLE IF NOT EXISTS preferences (
         user_id INTEGER PRIMARY KEY,
         pref_location TEXT,
         pref_cuisine TEXT,
-        last_location TEXT
+        last_location TEXT,
+        search_count INTEGER DEFAULT 0
     )
     ''')
 
-    # Add missing columns if not exist
-    try:
-        cur.execute("ALTER TABLE preferences ADD COLUMN last_location TEXT")
-    except:
-        pass  # Already exists
+    # Fix missing columns
+    try: cur.execute("ALTER TABLE preferences ADD COLUMN last_location TEXT")
+    except: pass
+    try: cur.execute("ALTER TABLE preferences ADD COLUMN search_count INTEGER DEFAULT 0")
+    except: pass
 
-    # Interactions
     cur.execute('''
     CREATE TABLE IF NOT EXISTS interactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,14 +104,13 @@ conn = get_db()
 cur = conn.cursor()
 
 # ========================================
-# SAFE DB HELPERS
+# DB HELPERS
 # ========================================
 def ensure_preference_row(user_id):
     try:
-        cur.execute("INSERT OR IGNORE INTO preferences (user_id) VALUES (?)", (user_id,))
+        cur.execute("INSERT OR IGNORE INTO preferences (user_id, search_count) VALUES (?, 0)", (user_id,))
         conn.commit()
-    except:
-        pass
+    except: pass
 
 def get_preference(user_id, field):
     ensure_preference_row(user_id)
@@ -107,8 +118,13 @@ def get_preference(user_id, field):
         cur.execute(f"SELECT {field} FROM preferences WHERE user_id=?", (user_id,))
         row = cur.fetchone()
         return row[0] if row and row[0] else None
-    except:
-        return None
+    except: return None
+
+def increment_search_count(user_id):
+    try:
+        cur.execute("UPDATE preferences SET search_count = search_count + 1 WHERE user_id=?", (user_id,))
+        conn.commit()
+    except: pass
 
 def set_preference(user_id, **kwargs):
     ensure_preference_row(user_id)
@@ -131,24 +147,22 @@ def register(u, p, e):
                     (u, hash_pw(p), e))
         conn.commit()
         return True
-    except: 
-        return False
+    except: return False
 
 def login(u, p):
     try:
         cur.execute("SELECT id FROM users WHERE username=? AND password_hash=?", (u, hash_pw(p)))
         row = cur.fetchone()
         return row[0] if row else None
-    except:
-        return None
+    except: return None
 
 # ========================================
-# LOCATION LIST (SCROLLABLE)
+# LOCATIONS
 # ========================================
 all_locations = sorted(rest_metadata['Location'].unique().tolist())
 
 # ========================================
-# RECOMMEND BY LOCATION
+# RECOMMEND
 # ========================================
 def recommend_by_location(location, cuisine=None, top_n=5):
     loc_clean = location.lower().strip()
@@ -167,10 +181,11 @@ def recommend_by_location(location, cuisine=None, top_n=5):
     return candidates.sort_values('Score', ascending=False).head(top_n)
 
 # ========================================
-# SIDEBAR: PROFILE + LOGOUT
+# SIDEBAR
 # ========================================
 def sidebar_profile():
     with st.sidebar:
+        st.image("https://upload.wikimedia.org/wikipedia/commons/5/5e/Nilai_University_Logo.png", width=120)
         st.markdown(f"### Hi, **{st.session_state.username}**")
         st.markdown("---")
         
@@ -180,113 +195,69 @@ def sidebar_profile():
             st.rerun()
         
         st.markdown("---")
-        st.markdown("#### Quick Stats")
+        st.markdown("#### Stats")
         
         uid = st.session_state.user_id
         try:
             cur.execute("SELECT COUNT(*) FROM interactions WHERE user_id=?", (uid,))
             interactions = cur.fetchone()[0]
+            search_count = get_preference(uid, 'search_count') or 0
         except:
-            interactions = 0
+            interactions = search_count = 0
         
         last_loc = get_preference(uid, 'last_location') or "Not set"
         
-        st.write(f"**Searches:** {interactions}")
+        st.write(f"**Searches:** {search_count}")
+        st.write(f"**Interactions:** {interactions}")
         st.write(f"**Last Area:** {last_loc}")
 
 # ========================================
-# PAGE: LOGIN
+# LOGIN PAGE
 # ========================================
 def page_login():
-    st.title("Foodmandu Recommender")
-    st.markdown("### Find the Best Restaurants in Your Area")
+    st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Find the best restaurants in your area</div>', unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([1, 1])
 
     with col1:
-        st.subheader("Login")
-        with st.form("login"):
-            u = st.text_input("Username")
-            p = st.text_input("Password", type="password")
-            if st.form_submit_button("Login"):
-                uid = login(u, p)
+        st.markdown("### Login")
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("Login")
+            if submit:
+                uid = login(username, password)
                 if uid:
                     st.session_state.user_id = uid
-                    st.session_state.username = u
+                    st.session_state.username = username
                     ensure_preference_row(uid)
                     st.rerun()
                 else:
-                    st.error("Invalid login")
+                    st.error("Invalid credentials")
+
+        st.markdown(f"<small>Don't have an account? <a href='#' onclick='document.getElementById(\"register-tab\").click()'>Register now</a></small>", unsafe_allow_html=True)
 
     with col2:
-        st.subheader("Register")
-        with st.form("register"):
-            u = st.text_input("Username", key="reg_u")
-            p = st.text_input("Password", type="password", key="reg_p")
-            e = st.text_input("Email", key="reg_e")
-            if st.form_submit_button("Register"):
-                if register(u, p, e):
-                    st.success("Registered! Login now.")
+        st.markdown("### Register")
+        with st.form("register_form"):
+            reg_u = st.text_input("Username", key="reg_u")
+            reg_p = st.text_input("Password", type="password", key="reg_p")
+            reg_e = st.text_input("Email", key="reg_e")
+            reg_submit = st.form_submit_button("Create Account")
+            if reg_submit:
+                if register(reg_u, reg_p, reg_e):
+                    st.success("Account created! Please login.")
                 else:
-                    st.error("Username taken")
+                    st.error("Username already taken")
 
 # ========================================
-# PAGE: DASHBOARD
-# ========================================
-def page_dashboard():
-    st.title("Your Dashboard")
-    uid = st.session_state.user_id
-
-    col1, col2 = st.columns([1, 2])
-
-    with col1:
-        st.subheader("Profile")
-        try:
-            cur.execute("SELECT username, email, created_at FROM users WHERE id=?", (uid,))
-            user = cur.fetchone()
-            st.write(f"**Name:** {user[0]}")
-            st.write(f"**Email:** {user[1]}")
-            st.write(f"**Member Since:** {user[2][:10]}")
-        except:
-            st.write("Profile data unavailable.")
-
-        st.subheader("Preferences")
-        pref_loc = get_preference(uid, 'pref_location') or 'Not set'
-        pref_cuisine = get_preference(uid, 'pref_cuisine') or 'Not set'
-        last_loc = get_preference(uid, 'last_location') or 'None'
-        st.write(f"**Favorite Area:** {pref_loc}")
-        st.write(f"**Favorite Cuisine:** {pref_cuisine}")
-        st.write(f"**Last Search:** {last_loc}")
-
-    with col2:
-        st.subheader("Activity Log")
-        try:
-            cur.execute("""
-                SELECT restaurant, action, timestamp 
-                FROM interactions 
-                WHERE user_id=? 
-                ORDER BY timestamp DESC 
-                LIMIT 10
-            """, (uid,))
-            logs = cur.fetchall()
-            
-            if logs:
-                log_df = pd.DataFrame(logs, columns=["Restaurant", "Action", "Time"])
-                log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
-                st.dataframe(log_df, use_container_width=True)
-            else:
-                st.info("No activity yet. Start searching!")
-        except:
-            st.info("No activity log.")
-
-# ========================================
-# PAGE: MAIN – SCROLLABLE LOCATIONS
+# MAIN PAGE
 # ========================================
 def page_main():
-    st.title("Find Restaurants")
+    st.markdown('<div class="title">Find Restaurants</div>', unsafe_allow_html=True)
     uid = st.session_state.user_id
 
-    # Default to last used or first location
     last_loc = get_preference(uid, 'last_location')
     default_loc = last_loc if last_loc and last_loc in all_locations else all_locations[0]
 
@@ -298,12 +269,11 @@ def page_main():
             index=all_locations.index(default_loc) if default_loc in all_locations else 0
         )
     with col2:
-        st.write("")  # Spacer
+        cuisine = st.selectbox("Cuisine?", 
+                               options=["Any"] + sorted(rest_metadata['Cuisine Type'].unique().tolist()))
 
-    cuisine = st.selectbox("Preferred cuisine?", 
-                           options=["Any"] + sorted(rest_metadata['Cuisine Type'].unique().tolist()))
-
-    if st.button("Search Restaurants", type="primary"):
+    if st.button("Search Restaurants", type="primary", use_container_width=True):
+        increment_search_count(uid)
         set_preference(uid, last_location=location)
         
         cuisine_filter = cuisine if cuisine != "Any" else None
@@ -314,24 +284,75 @@ def page_main():
         else:
             st.success(f"Top {len(recs)} in **{location}**")
             for _, row in recs.iterrows():
-                with st.expander(f"{row['Restaurant Name']} • {row['Cuisine Type']}"):
-                    st.write(f"**Location:** {row['Location']}")
-                    if st.button(f"Select This", key=row['Restaurant Name']):
-                        cur.execute("INSERT INTO interactions (user_id, restaurant, action) VALUES (?, ?, ?)",
-                                    (uid, row['Restaurant Name'], 'select'))
-                        conn.commit()
-                        st.success(f"Selected **{row['Restaurant Name']}**!")
+                with st.container():
+                    st.markdown(f"""
+                    <div class="restaurant-card">
+                        <h4>{row['Restaurant Name']}</h4>
+                        <p><strong>Cuisine:</strong> {row['Cuisine Type']}<br>
+                           <strong>Location:</strong> {row['Location']}<br>
+                           <strong>Avg Price:</strong> Rs. {row.get('avg_price', 'N/A'):.0f}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    col_a, col_b = st.columns([3, 1])
+                    with col_b:
+                        if st.button("Select", key=row['Restaurant Name']):
+                            cur.execute("INSERT INTO interactions (user_id, restaurant, action) VALUES (?, ?, ?)",
+                                        (uid, row['Restaurant Name'], 'select'))
+                            conn.commit()
+                            st.success(f"Selected **{row['Restaurant Name']}**!")
 
 # ========================================
-# MAIN APP
+# DASHBOARD
+# ========================================
+def page_dashboard():
+    st.markdown('<div class="title">Your Dashboard</div>', unsafe_allow_html=True)
+    uid = st.session_state.user_id
+
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        st.subheader("Profile")
+        cur.execute("SELECT username, email, created_at FROM users WHERE id=?", (uid,))
+        user = cur.fetchone()
+        st.write(f"**Name:** {user[0]}")
+        st.write(f"**Email:** {user[1]}")
+        st.write(f"**Member Since:** {user[2][:10]}")
+
+        st.subheader("Preferences")
+        pref_loc = get_preference(uid, 'pref_location') or 'Not set'
+        pref_cuisine = get_preference(uid, 'pref_cuisine') or 'Not set'
+        last_loc = get_preference(uid, 'last_location') or 'None'
+        search_count = get_preference(uid, 'search_count') or 0
+        st.write(f"**Favorite Area:** {pref_loc}")
+        st.write(f"**Favorite Cuisine:** {pref_cuisine}")
+        st.write(f"**Last Search:** {last_loc}")
+        st.write(f"**Total Searches:** {search_count}")
+
+    with col2:
+        st.subheader("Activity Log")
+        cur.execute("""
+            SELECT restaurant, action, timestamp 
+            FROM interactions 
+            WHERE user_id=? 
+            ORDER BY timestamp DESC 
+            LIMIT 10
+        """, (uid,))
+        logs = cur.fetchall()
+        
+        if logs:
+            log_df = pd.DataFrame(logs, columns=["Restaurant", "Action", "Time"])
+            log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
+            st.dataframe(log_df, use_container_width=True)
+        else:
+            st.info("No activity yet.")
+
+# ========================================
+# MAIN
 # ========================================
 if 'user_id' not in st.session_state:
     page_login()
 else:
-    try:
-        sidebar_profile()
-    except:
-        st.sidebar.error("Sidebar error. Refresh.")
+    sidebar_profile()
     
     tab1, tab2 = st.tabs(["Search", "Dashboard"])
     
