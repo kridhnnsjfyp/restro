@@ -1,4 +1,5 @@
 
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -16,7 +17,6 @@ st.set_page_config(page_title="Foodmandu Recommender", layout="wide", initial_si
 
 MODEL_DIR = "recommender_model"
 DB_PATH = "restaurant_recommender.db"
-CSV_PATH = "foodmandu_data_clean.csv"
 
 # ========================================
 # LOAD MODEL
@@ -86,21 +86,30 @@ cur = conn.cursor()
 # SAFE DB HELPERS
 # ========================================
 def ensure_preference_row(user_id):
-    cur.execute("INSERT OR IGNORE INTO preferences (user_id) VALUES (?)", (user_id,))
-    conn.commit()
+    try:
+        cur.execute("INSERT OR IGNORE INTO preferences (user_id) VALUES (?)", (user_id,))
+        conn.commit()
+    except:
+        pass  # Already exists
 
 def get_preference(user_id, field):
     ensure_preference_row(user_id)
-    cur.execute(f"SELECT {field} FROM preferences WHERE user_id=?", (user_id,))
-    row = cur.fetchone()
-    return row[0] if row and row[0] else None
+    try:
+        cur.execute(f"SELECT {field} FROM preferences WHERE user_id=?", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row and row[0] else None
+    except:
+        return None
 
 def set_preference(user_id, **kwargs):
     ensure_preference_row(user_id)
-    updates = ", ".join([f"{k}=?" for k in kwargs])
-    values = list(kwargs.values()) + [user_id]
-    cur.execute(f"UPDATE preferences SET {updates} WHERE user_id=?", values)
-    conn.commit()
+    try:
+        updates = ", ".join([f"{k}=?" for k in kwargs])
+        values = list(kwargs.values()) + [user_id]
+        cur.execute(f"UPDATE preferences SET {updates} WHERE user_id=?", values)
+        conn.commit()
+    except Exception as e:
+        st.error(f"DB Error: {e}")
 
 # ========================================
 # AUTH
@@ -113,12 +122,16 @@ def register(u, p, e):
                     (u, hash_pw(p), e))
         conn.commit()
         return True
-    except: return False
+    except: 
+        return False
 
 def login(u, p):
-    cur.execute("SELECT id FROM users WHERE username=? AND password_hash=?", (u, hash_pw(p)))
-    row = cur.fetchone()
-    return row[0] if row else None
+    try:
+        cur.execute("SELECT id FROM users WHERE username=? AND password_hash=?", (u, hash_pw(p)))
+        row = cur.fetchone()
+        return row[0] if row else None
+    except:
+        return None
 
 # ========================================
 # LOCATION
@@ -167,8 +180,11 @@ def sidebar_profile():
         st.markdown("#### Quick Stats")
         
         uid = st.session_state.user_id
-        cur.execute("SELECT COUNT(*) FROM interactions WHERE user_id=?", (uid,))
-        interactions = cur.fetchone()[0]
+        try:
+            cur.execute("SELECT COUNT(*) FROM interactions WHERE user_id=?", (uid,))
+            interactions = cur.fetchone()[0]
+        except:
+            interactions = 0
         
         last_loc = get_preference(uid, 'last_location') or "Not set"
         
@@ -194,7 +210,7 @@ def page_login():
                 if uid:
                     st.session_state.user_id = uid
                     st.session_state.username = u
-                    ensure_preference_row(uid)  # Create row
+                    ensure_preference_row(uid)
                     st.rerun()
                 else:
                     st.error("Invalid login")
@@ -222,11 +238,14 @@ def page_dashboard():
 
     with col1:
         st.subheader("Profile")
-        cur.execute("SELECT username, email, created_at FROM users WHERE id=?", (uid,))
-        user = cur.fetchone()
-        st.write(f"**Name:** {user[0]}")
-        st.write(f"**Email:** {user[1]}")
-        st.write(f"**Member Since:** {user[2][:10]}")
+        try:
+            cur.execute("SELECT username, email, created_at FROM users WHERE id=?", (uid,))
+            user = cur.fetchone()
+            st.write(f"**Name:** {user[0]}")
+            st.write(f"**Email:** {user[1]}")
+            st.write(f"**Member Since:** {user[2][:10]}")
+        except:
+            st.write("Profile data unavailable.")
 
         st.subheader("Preferences")
         pref_loc = get_preference(uid, 'pref_location') or 'Not set'
@@ -238,24 +257,27 @@ def page_dashboard():
 
     with col2:
         st.subheader("Activity Log")
-        cur.execute("""
-            SELECT restaurant, action, timestamp 
-            FROM interactions 
-            WHERE user_id=? 
-            ORDER BY timestamp DESC 
-            LIMIT 10
-        """, (uid,))
-        logs = cur.fetchall()
-        
-        if logs:
-            log_df = pd.DataFrame(logs, columns=["Restaurant", "Action", "Time"])
-            log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
-            st.dataframe(log_df, use_container_width=True)
-        else:
-            st.info("No activity yet. Start searching!")
+        try:
+            cur.execute("""
+                SELECT restaurant, action, timestamp 
+                FROM interactions 
+                WHERE user_id=? 
+                ORDER BY timestamp DESC 
+                LIMIT 10
+            """, (uid,))
+            logs = cur.fetchall()
+            
+            if logs:
+                log_df = pd.DataFrame(logs, columns=["Restaurant", "Action", "Time"])
+                log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
+                st.dataframe(log_df, use_container_width=True)
+            else:
+                st.info("No activity yet. Start searching!")
+        except:
+            st.info("No activity log.")
 
 # ========================================
-# PAGE: MAIN (LOCATION FIRST)
+# PAGE: MAIN
 # ========================================
 def page_main():
     st.title("Find Restaurants")
@@ -301,7 +323,10 @@ def page_main():
 if 'user_id' not in st.session_state:
     page_login()
 else:
-    sidebar_profile()
+    try:
+        sidebar_profile()
+    except:
+        st.sidebar.error("Sidebar error. Refresh.")
     
     tab1, tab2 = st.tabs(["Search", "Dashboard"])
     
