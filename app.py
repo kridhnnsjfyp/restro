@@ -1,7 +1,7 @@
 # app.py
 # Restaurant Recommender – FYP EC3319
 # Krish Chakradhar – 00020758
-# FINAL: VIEW → DETAIL PAGE + DARK THEME + NO WHITE BOXES
+# FINAL: NO VIEW BUTTON + SMART SIMILAR + USER PREFERENCES
 
 import streamlit as st
 import pandas as pd
@@ -15,11 +15,11 @@ import os
 # ========================================
 st.set_page_config(page_title="Foodmandu Recommender", layout="centered", initial_sidebar_state="expanded")
 
-# DARK THEME – NO WHITE CARDS
+# DARK THEME
 st.markdown("""
 <style>
     .main {background-color: #1a202c; padding: 0 !important; margin: 0 !important;}
-    .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100% !important;}
+    .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important;}
     header, #MainMenu, footer, .stDeployButton, div[data-testid="stToolbar"] {display: none !important;}
     
     .stTextInput > div > div > input {
@@ -43,17 +43,21 @@ st.markdown("""
     .stButton > button[type="secondary"] {background: #48bb78 !important;}
     .stButton > button[type="secondary"]:hover {background: #38a169 !important;}
     
-    .card, .detail-card, .similar-card {
+    .card {
         background: #2d3748 !important; color: white !important;
         border-radius: 12px; padding: 1.2rem; margin: 1rem 0; 
         box-shadow: 0 4px 12px rgba(0,0,0,0.2); border: 1px solid #4a5568;
     }
-    .detail-card {border-radius: 16px; padding: 2rem;}
-    .similar-card {padding: 1.5rem;}
-    .tag {background: #4299e1; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
-    .info-row {display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #4a5568;}
-    .info-label {font-weight: 600; color: #e2e8f0;}
-    .info-value {color: white;}
+    .similar-card {
+        background: #1a202c !important; color: white !important;
+        border-radius: 10px; padding: 1rem; margin: 0.5rem 0; 
+        border: 1px dashed #4a5568; font-size: 0.9rem;
+    }
+    .tag {
+        background: #4299e1; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; 
+        font-size: 0.8rem; display: inline-block; margin: 0.2rem;
+    }
+    .expandable {cursor: pointer; color: #4299e1; font-weight: 600;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -127,12 +131,9 @@ def is_favorite(user_id, rest_name):
 def toggle_favorite(user_id, rest_name):
     if is_favorite(user_id, rest_name):
         cur.execute("DELETE FROM favorites WHERE user_id=? AND restaurant=?", (user_id, rest_name))
-        conn.commit()
-        return False
     else:
         cur.execute("INSERT OR IGNORE INTO favorites (user_id, restaurant) VALUES (?, ?)", (user_id, rest_name))
-        conn.commit()
-        return True
+    conn.commit()
 
 def log_interaction(user_id, restaurant, action):
     try:
@@ -154,9 +155,7 @@ def register(u, p, e):
         cur.execute("INSERT INTO users (username, password_hash, email) VALUES (?, ?, ?)", (u, hash_pw(p), e))
         conn.commit()
         return True
-    except Exception as e:
-        st.error(f"Registration failed: {str(e)}")
-        return False
+    except: return False
 
 def login(u, p):
     try:
@@ -174,13 +173,8 @@ def page_auth():
     with st.container():
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
         if 'show_register' not in st.session_state: st.session_state.show_register = False
-        if 'reg_success' not in st.session_state: st.session_state.reg_success = False
-
         if st.session_state.show_register:
             st.markdown("### Create Account")
-            if st.session_state.reg_success:
-                st.success("Account created! Please login.")
-                st.session_state.reg_success = False
             with st.form("register_form"):
                 reg_u = st.text_input("Username", placeholder="Enter username", key="reg_u")
                 reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
@@ -191,10 +185,10 @@ def page_auth():
                 if back: st.session_state.show_register = False; st.rerun()
                 if reg_submit:
                     if register(reg_u, reg_p, reg_e):
-                        st.session_state.reg_success = True
-                        st.rerun()
+                        st.success("Account created! Login now.")
+                        st.session_state.show_register = False
                     else:
-                        st.error("Username taken or invalid input.")
+                        st.error("Username taken.")
         else:
             st.markdown("### Login")
             with st.form("login_form"):
@@ -216,70 +210,11 @@ def page_auth():
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-def page_restaurant_detail(rest_name):
-    uid = st.session_state.user_id
-    log_interaction(uid, rest_name, "viewed")
-    rest_data = rest_metadata[rest_metadata['Restaurant Name'] == rest_name]
-    if rest_data.empty:
-        st.error("Restaurant not found!")
-        return
-    rest = rest_data.iloc[0]
-
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        if st.button("Back to Search", use_container_width=True, type="secondary"):
-            st.session_state.selected_rest = None
-            st.rerun()
-    with col2:
-        is_fav = is_favorite(uid, rest_name)
-        fav_label = "Unfavorite" if is_fav else "Favorite"
-        if st.button(fav_label, use_container_width=True, key=f"fav_{rest_name}"):
-            toggle_favorite(uid, rest_name)
-            st.rerun()
-    with col3:
-        if st.button("Similar", use_container_width=True):
-            st.session_state.show_similar = not st.session_state.get('show_similar', False)
-            st.rerun()
-
-    st.markdown(f'<div class="title">{rest["Restaurant Name"]}</div>', unsafe_allow_html=True)
-    price_str = f"Rs. {rest.get('avg_price', 'N/A'):.0f}" if pd.notna(rest.get('avg_price')) else "N/A"
-    rating_str = f"{rest.get('rating', 'N/A')}/5" if pd.notna(rest.get('rating')) else "N/A"
-    stars = '⭐' * int(rest.get('rating', 0)) if pd.notna(rest.get('rating')) else ''
-
-    st.markdown(f"""
-    <div class="detail-card">
-        <div class="info-row"><span class="info-label">Location:</span><span class="info-value">{rest['Location']}</span></div>
-        <div class="info-row"><span class="info-label">Cuisine:</span><span class="info-value">{rest['Cuisine Type']}</span></div>
-        <div class="info-row"><span class="info-label">Average Price:</span><span class="info-value">{price_str}</span></div>
-        <div class="info-row"><span class="info-label">Rating:</span><span class="info-value">{rating_str} {stars}</span></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    if st.session_state.get('show_similar', False):
-        st.markdown("---")
-        st.markdown("### Similar Restaurants")
-        sim_recs = get_similar_restaurants(rest_name, top_n=5)
-        if not sim_recs.empty:
-            for _, row in sim_recs.iterrows():
-                col_a, col_b = st.columns([4, 1])
-                price_str = f"Rs. {row.get('avg_price', 'N/A'):.0f}" if pd.notna(row.get('avg_price')) else "N/A"
-                rating_str = f"{row.get('rating', 'N/A')}/5" if pd.notna(row.get('rating')) else "N/A"
-                with col_a:
-                    st.markdown(f"""
-                    <div class="similar-card">
-                        <h4 style="margin: 0 0 0.5rem 0; color: #4299e1;">{row['Restaurant Name']}</h4>
-                        <p style="margin: 0;"><span class="tag">{row['Cuisine Type']}</span> <span class="tag">{row['Location']}</span></p>
-                        <p style="margin: 0.5rem 0 0 0;"><strong>Price:</strong> {price_str} | <strong>Rating:</strong> {rating_str}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with col_b:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("View", key=f"sim_{row['Restaurant Name']}", use_container_width=True):
-                        st.session_state.selected_rest = row['Restaurant Name']
-                        st.session_state.show_similar = False
-                        st.rerun()
-        else:
-            st.info("No similar restaurants found.")
+def get_similar_restaurants(rest_name, top_n=2):
+    if rest_name not in similarity_df.index:
+        return pd.DataFrame()
+    sim_scores = similarity_df.loc[rest_name].sort_values(ascending=False).iloc[1:top_n+1]
+    return rest_metadata[rest_metadata['Restaurant Name'].isin(sim_scores.index)]
 
 def page_main():
     st.markdown('<div class="title">Find Restaurants</div>', unsafe_allow_html=True)
@@ -296,7 +231,7 @@ def page_main():
 
     if st.button("Search Restaurants", use_container_width=True):
         increment_search_count(uid)
-        set_preference(uid, last_location=location)
+        set_preference(uid, last_location=location, pref_cuisine=cuisine if cuisine != "Any" else None)
         cuisine_filter = cuisine if cuisine != "Any" else None
         recs = recommend_by_location(location, cuisine_filter)
 
@@ -305,23 +240,38 @@ def page_main():
         else:
             st.success(f"Found {len(recs)} restaurant(s) in **{location}**")
             for _, row in recs.iterrows():
-                col_card, col_btn = st.columns([4, 1])
+                rest_name = row['Restaurant Name']
                 price_str = f"Rs. {row.get('avg_price', 'N/A'):.0f}" if pd.notna(row.get('avg_price')) else "N/A"
                 rating_str = f"{row.get('rating', 'N/A')}/5" if pd.notna(row.get('rating')) else "N/A"
-                with col_card:
-                    st.markdown(f"""
-                    <div class="card">
-                        <h4 style="margin:0; color:#4299e1;">{row['Restaurant Name']}</h4>
-                        <p style="margin:0.3rem 0;"><span class="tag">{row['Cuisine Type']}</span> <span class="tag">{row['Location']}</span></p>
+
+                with st.expander(f"**{rest_name}**", expanded=False):
+                    col_a, col_b = st.columns([4, 1])
+                    with col_a:
+                        st.markdown(f"""
+                        <p style="margin:0;"><span class="tag">{row['Cuisine Type']}</span> <span class="tag">{row['Location']}</span></p>
                         <p style="margin:0.5rem 0 0 0;"><strong>Price:</strong> {price_str} | <strong>Rating:</strong> {rating_str}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with col_btn:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("View", key=f"view_{row['Restaurant Name']}", use_container_width=True):
-                        st.session_state.selected_rest = row['Restaurant Name']  # SET FIRST
-                        log_interaction(uid, row['Restaurant Name'], "clicked")
-                        st.rerun()  # RERUN → GO TO DETAIL PAGE
+                        """, unsafe_allow_html=True)
+                    with col_b:
+                        fav_label = "Unfavorite" if is_favorite(uid, rest_name) else "Favorite"
+                        if st.button(fav_label, key=f"fav_{rest_name}", use_container_width=True):
+                            toggle_favorite(uid, rest_name)
+                            log_interaction(uid, rest_name, "favorited")
+                            st.rerun()
+
+                    # SIMILAR RESTAURANTS
+                    sim_recs = get_similar_restaurants(rest_name, top_n=2)
+                    if not sim_recs.empty:
+                        st.markdown("**You might also like:**")
+                        for _, sim in sim_recs.iterrows():
+                            sim_price = f"Rs. {sim.get('avg_price', 'N/A'):.0f}" if pd.notna(sim.get('avg_price')) else "N/A"
+                            st.markdown(f"""
+                            <div class="similar-card">
+                                <strong>{sim['Restaurant Name']}</strong> • {sim['Cuisine Type']} • {sim['Location']}<br>
+                                <small>Price: {sim_price}</small>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.caption("No similar restaurants found.")
 
 def page_dashboard():
     st.markdown('<div class="title">Your Dashboard</div>', unsafe_allow_html=True)
@@ -329,35 +279,29 @@ def page_dashboard():
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("Profile")
-        try:
-            cur.execute("SELECT username, email, created_at FROM users WHERE id=?", (uid,))
-            user = cur.fetchone()
-            st.write(f"**Name:** {user[0]}")
-            st.write(f"**Email:** {user[1]}")
-            st.write(f"**Member Since:** {user[2][:10]}")
-        except: st.write("Profile data unavailable.")
+        cur.execute("SELECT username, email, created_at FROM users WHERE id=?", (uid,))
+        user = cur.fetchone()
+        st.write(f"**Name:** {user[0]}")
+        st.write(f"**Email:** {user[1]}")
+        st.write(f"**Member Since:** {user[2][:10]}")
         st.subheader("Favorites")
         cur.execute("SELECT restaurant FROM favorites WHERE user_id=?", (uid,))
         favs = cur.fetchall()
         if favs:
             for (r,) in favs:
-                if st.button(r, key=f"fav_dash_{r}", use_container_width=True):
-                    st.session_state.selected_rest = r
-                    st.rerun()
+                st.button(r, key=f"fav_dash_{r}", use_container_width=True)
         else:
             st.info("No favorites yet.")
     with col2:
         st.subheader("Recent Activity")
-        try:
-            cur.execute("SELECT restaurant, action, timestamp FROM interactions WHERE user_id=? ORDER BY timestamp DESC LIMIT 10", (uid,))
-            logs = cur.fetchall()
-            if logs:
-                log_df = pd.DataFrame(logs, columns=["Restaurant", "Action", "Time"])
-                log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
-                st.dataframe(log_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("No activity yet.")
-        except: st.info("No activity log.")
+        cur.execute("SELECT restaurant, action, timestamp FROM interactions WHERE user_id=? ORDER BY timestamp DESC LIMIT 10", (uid,))
+        logs = cur.fetchall()
+        if logs:
+            log_df = pd.DataFrame(logs, columns=["Restaurant", "Action", "Time"])
+            log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
+            st.dataframe(log_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No activity yet.")
 
 def sidebar_profile():
     with st.sidebar:
@@ -365,25 +309,21 @@ def sidebar_profile():
         st.markdown(f"### Hi, **{st.session_state.username}**")
         st.markdown("---")
         if st.button("Home", use_container_width=True):
-            st.session_state.selected_rest = None
             st.rerun()
         if st.button("Logout", use_container_width=True):
             for k in list(st.session_state.keys()): del st.session_state[k]
             st.rerun()
         st.markdown("---")
         uid = st.session_state.user_id
-        try:
-            cur.execute("SELECT COUNT(*) FROM interactions WHERE user_id=?", (uid,))
-            interactions = cur.fetchone()[0]
-            search_count = get_preference(uid, 'search_count') or 0
-        except: interactions = search_count = 0
+        search_count = get_preference(uid, 'search_count') or 0
         last_loc = get_preference(uid, 'last_location') or "Not set"
+        pref_cuisine = get_preference(uid, 'pref_cuisine') or "Not set"
         st.write(f"**Searches:** `{search_count}`")
-        st.write(f"**Selections:** `{interactions}`")
         st.write(f"**Last Area:** `{last_loc}`")
+        st.write(f"**Pref Cuisine:** `{pref_cuisine}`")
 
 # ========================================
-# RECOMMEND & SIMILAR
+# RECOMMEND
 # ========================================
 def recommend_by_location(location, cuisine=None, top_n=5):
     loc_clean = location.lower().strip()
@@ -397,27 +337,13 @@ def recommend_by_location(location, cuisine=None, top_n=5):
     candidates['Score'] = scores
     return candidates.sort_values('Score', ascending=False).head(top_n)
 
-def get_similar_restaurants(rest_name, top_n=5):
-    if rest_name not in similarity_df.index:
-        return pd.DataFrame()
-    sim_scores = similarity_df.loc[rest_name].sort_values(ascending=False).iloc[1:top_n+1]
-    return rest_metadata[rest_metadata['Restaurant Name'].isin(sim_scores.index)]
-
 # ========================================
-# MAIN ROUTING – FIXED ORDER
+# MAIN ROUTING
 # ========================================
 if 'user_id' not in st.session_state:
     page_auth()
 else:
     sidebar_profile()
-
-    # SET selected_rest FIRST (from button)
-    # Then check if we should show detail page
-    if st.session_state.get('selected_rest'):
-        page_restaurant_detail(st.session_state.selected_rest)
-    else:
-        tab1, tab2 = st.tabs(["Search", "Dashboard"])
-        with tab1:
-            page_main()
-        with tab2:
-            page_dashboard()
+    tab1, tab2 = st.tabs(["Search", "Dashboard"])
+    with tab1: page_main()
+    with tab2: page_dashboard()
