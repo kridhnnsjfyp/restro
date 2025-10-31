@@ -1,7 +1,3 @@
-# app.py
-# Restaurant Recommender – FYP EC3319
-# Krish Chakradhar – 00020758
-# FINAL VERSION: Location-First + User Dashboard
 
 import streamlit as st
 import pandas as pd
@@ -44,7 +40,7 @@ def load_model():
 similarity_df, rest_metadata = load_model()
 
 # ========================================
-# DATABASE
+# DATABASE (SAFE)
 # ========================================
 @st.cache_resource
 def get_db():
@@ -87,6 +83,26 @@ conn = get_db()
 cur = conn.cursor()
 
 # ========================================
+# SAFE DB HELPERS
+# ========================================
+def ensure_preference_row(user_id):
+    cur.execute("INSERT OR IGNORE INTO preferences (user_id) VALUES (?)", (user_id,))
+    conn.commit()
+
+def get_preference(user_id, field):
+    ensure_preference_row(user_id)
+    cur.execute(f"SELECT {field} FROM preferences WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
+    return row[0] if row and row[0] else None
+
+def set_preference(user_id, **kwargs):
+    ensure_preference_row(user_id)
+    updates = ", ".join([f"{k}=?" for k in kwargs])
+    values = list(kwargs.values()) + [user_id]
+    cur.execute(f"UPDATE preferences SET {updates} WHERE user_id=?", values)
+    conn.commit()
+
+# ========================================
 # AUTH
 # ========================================
 def hash_pw(pw): return hashlib.sha256(pw.encode()).hexdigest()
@@ -120,7 +136,8 @@ def get_user_city():
 # ========================================
 def recommend_by_location(location, cuisine=None, top_n=5):
     loc_clean = location.lower().strip()
-    candidates = rest_metadata[rest_metadata['Location'].str.lower().str.contains(loc_clean, na=False)]
+    mask = rest_metadata['Location'].str.lower().str.contains(loc_clean, na=False)
+    candidates = rest_metadata[mask]
     
     if cuisine and cuisine != "Any":
         candidates = candidates[candidates['Cuisine Type'].str.contains(cuisine, case=False, na=False)]
@@ -128,14 +145,13 @@ def recommend_by_location(location, cuisine=None, top_n=5):
     if candidates.empty:
         return pd.DataFrame()
     
-    # Simple scoring
     scores = candidates['Cuisine Type'].apply(lambda x: 2.0 if cuisine and cuisine.lower() in x.lower() else 1.0)
     candidates = candidates.copy()
     candidates['Score'] = scores
     return candidates.sort_values('Score', ascending=False).head(top_n)
 
 # ========================================
-# SIDEBAR: LOGOUT + PROFILE
+# SIDEBAR: PROFILE + LOGOUT
 # ========================================
 def sidebar_profile():
     with st.sidebar:
@@ -154,9 +170,7 @@ def sidebar_profile():
         cur.execute("SELECT COUNT(*) FROM interactions WHERE user_id=?", (uid,))
         interactions = cur.fetchone()[0]
         
-        cur.execute("SELECT last_location FROM preferences WHERE user_id=?", (uid,))
-        last_loc = cur.fetchone()
-        last_loc = last_loc[0] if last_loc else "Not set"
+        last_loc = get_preference(uid, 'last_location') or "Not set"
         
         st.write(f"**Searches:** {interactions}")
         st.write(f"**Last Area:** {last_loc}")
@@ -180,6 +194,7 @@ def page_login():
                 if uid:
                     st.session_state.user_id = uid
                     st.session_state.username = u
+                    ensure_preference_row(uid)  # Create row
                     st.rerun()
                 else:
                     st.error("Invalid login")
@@ -214,14 +229,12 @@ def page_dashboard():
         st.write(f"**Member Since:** {user[2][:10]}")
 
         st.subheader("Preferences")
-        cur.execute("SELECT pref_location, pref_cuisine, last_location FROM preferences WHERE user_id=?", (uid,))
-        pref = cur.fetchone()
-        if pref:
-            st.write(f"**Favorite Area:** {pref[0] or 'Not set'}")
-            st.write(f"**Favorite Cuisine:** {pref[1] or 'Not set'}")
-            st.write(f"**Last Search:** {pref[2] or 'None'}")
-        else:
-            st.info("No preferences yet.")
+        pref_loc = get_preference(uid, 'pref_location') or 'Not set'
+        pref_cuisine = get_preference(uid, 'pref_cuisine') or 'Not set'
+        last_loc = get_preference(uid, 'last_location') or 'None'
+        st.write(f"**Favorite Area:** {pref_loc}")
+        st.write(f"**Favorite Cuisine:** {pref_cuisine}")
+        st.write(f"**Last Search:** {last_loc}")
 
     with col2:
         st.subheader("Activity Log")
@@ -248,10 +261,7 @@ def page_main():
     st.title("Find Restaurants")
     uid = st.session_state.user_id
 
-    # Location input
-    cur.execute("SELECT last_location FROM preferences WHERE user_id=?", (uid,))
-    saved = cur.fetchone()
-    default_loc = saved[0] if saved else get_user_city()
+    default_loc = get_preference(uid, 'last_location') or get_user_city()
 
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -267,13 +277,8 @@ def page_main():
                            options=["Any"] + sorted(rest_metadata['Cuisine Type'].unique().tolist()))
 
     if st.button("Search Restaurants", type="primary"):
-        # Save location
-        cur.execute('''
-        INSERT OR REPLACE INTO preferences (user_id, last_location) VALUES (?, ?)
-        ''', (uid, location))
-        conn.commit()
-
-        # Recommend
+        set_preference(uid, last_location=location)
+        
         cuisine_filter = cuisine if cuisine != "Any" else None
         recs = recommend_by_location(location, cuisine_filter)
 
