@@ -1,17 +1,8 @@
 """
 FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender with Collaborative Filtering
+Restaurant Recommender with Smart Matching
 EC3319 — Nilai University
 Supervisor: Subarna Sapkota
-
-Features:
-- Login/Signup/Guest
-- Preferences + Location
-- Smart Synonyms: "Pizza" → Pizzeria, "Burger" → Burger Joint, etc.
-- Safe DB + CSV handling
-- Grid UI + Pagination
-- Ratings & Reviews
-- 100% ERROR-FREE
 """
 
 import streamlit as st
@@ -23,9 +14,6 @@ import pickle
 import math
 from pathlib import Path
 
-# ========================
-# CONFIG
-# ========================
 st.set_page_config(page_title="Kathmandu Restaurant Recommender", layout="wide")
 
 BASE_DIR = Path(__file__).parent
@@ -35,9 +23,6 @@ MODEL_DIR = BASE_DIR / "recommender_model"
 SIMILARITY_PKL = MODEL_DIR / "similarity_matrix.pkl"
 RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 
-# ========================
-# INIT DB
-# ========================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -66,9 +51,6 @@ def init_db():
 
 init_db()
 
-# ========================
-# UTILS
-# ========================
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
 def safe_read_csv(path):
@@ -79,9 +61,6 @@ def safe_read_csv(path):
     except:
         return pd.DataFrame()
 
-# ========================
-# DATA LOADERS
-# ========================
 @st.cache_data
 def load_metadata():
     df = safe_read_csv(RESTAURANT_META_CSV)
@@ -131,9 +110,6 @@ def load_similarity():
     except:
         return None
 
-# ========================
-# DB OPERATIONS
-# ========================
 def get_user(username):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -202,9 +178,7 @@ def save_user_rating(username, restaurant_id, rating, review=""):
         conn.close()
     except: pass
 
-# ========================
-# SMART RECOMMENDATION WITH SYNONYMS
-# ========================
+# SMART RECOMMENDATION
 def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -218,48 +192,45 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     rated = {r[0]: r[1] for r in rows} if rows else {}
     candidates = meta[~meta['restaurant_id'].isin(rated.keys())].copy() if rated else meta.copy()
 
-    # LOCATION FILTER
     if location and location.strip():
         candidates = candidates[candidates['location'].astype(str).str.contains(location, case=False, na=False)]
 
-    # PREFERENCES FILTER — FULL SYNONYM MAPPING
     if prefs and prefs.strip():
         prefs_list = [p.strip().lower() for p in prefs.split(",") if p.strip()]
         if prefs_list:
-            # COMPREHENSIVE FOOD SYNONYM DICTIONARY
-            synonym_map = {
-                "pizza": ["pizza", "pizzeria", "pizza house", "pizza hut", "italian pizza", "neapolitan", "deep dish"],
+            keyword_map = {
+                "pizza": ["pizza", "pizzeria", "pizzas", "pizza house", "pizza hut", "italian pizza", "neapolitan", "deep dish"],
+                "italian": ["italian", "pasta", "risotto", "lasagna", "gnocchi", "carbonara", "alfredo"],
                 "burger": ["burger", "hamburger", "cheeseburger", "burger joint", "big mac", "whopper", "beef burger"],
                 "coffee": ["coffee", "cafe", "espresso", "latte", "cappuccino", "americano", "coffee shop", "barista"],
                 "tea": ["tea", "chai", "green tea", "black tea", "herbal tea", "tea house"],
-                "chinese": ["chinese", "sichuan", "cantonese", "dim sum", "wonton", "chow mein", "peking duck"],
-                "japanese": ["japanese", "sushi", "ramen", "sashimi", "tempura", "udon", "teriyaki"],
-                "korean": ["korean", "kimchi", "bibimbap", "bulgogi", "korean bbq", "samgyeopsal"],
-                "thai": ["thai", "pad thai", "tom yum", "green curry", "red curry", "thai food"],
-                "vietnamese": ["vietnamese", "pho", "banh mi", "spring roll", "viet"],
-                "indian": ["indian", "north indian", "south indian", "curry", "biryani", "butter chicken", "tandoori"],
-                "nepali": ["nepali", "newari", "thakali", "momo", "dal bhat", "sel roti", "gundruk"],
-                "momo": ["momo", "dumpling", "steam momo", "fried momo"],
-                "fast food": ["fast food", "kfc", "mcdonald", "burger king", "quick bite"],
-                "sandwich": ["sandwich", "sub", "panini", "club sandwich"],
-                "noodles": ["noodles", "chowmein", "ramen", "spaghetti", "pasta"],
-                "dessert": ["dessert", "cake", "pastry", "ice cream", "sweet", "bakery"],
-                "cake": ["cake", "birthday cake", "chocolate cake", "cheesecake"],
-                "ice cream": ["ice cream", "gelato", "sundae", "kulfi"],
-                "vegetarian": ["vegetarian", "vegan", "plant-based", "veg", "salad"],
-                "salad": ["salad", "caesar", "greek salad", "healthy bowl"],
-                "juice": ["juice", "fresh juice", "smoothie", "milkshake"],
-                "bar": ["bar", "pub", "cocktail", "beer", "wine"],
-                "continental": ["continental", "european", "steak", "pasta", "grilled"],
-                "mexican": ["mexican", "taco", "burrito", "nachos", "enchilada"],
-                "italian": ["italian", "pasta", "risotto", "lasagna", "gnocchi"],
+                "chinese": ["chinese", "sichuan", "cantonese", "dim sum", "wonton", "chow mein", "peking duck", "fried rice"],
+                "japanese": ["japanese", "sushi", "ramen", "sashimi", "tempura", "udon", "teriyaki", "sashimi"],
+                "korean": ["korean", "kimchi", "bibimbap", "bulgogi", "korean bbq", "samgyeopsal", "tteokbokki"],
+                "thai": ["thai", "pad thai", "tom yum", "green curry", "red curry", "thai food", "som tam"],
+                "vietnamese": ["vietnamese", "pho", "banh mi", "spring roll", "viet", "bun cha"],
+                "indian": ["indian", "north indian", "south indian", "curry", "biryani", "butter chicken", "tandoori", "naan"],
+                "nepali": ["nepali", "newari", "thakali", "momo", "dal bhat", "sel roti", "gundruk", "kwati"],
+                "momo": ["momo", "dumpling", "steam momo", "fried momo", "jhol momo"],
+                "fast food": ["fast food", "kfc", "mcdonald", "burger king", "quick bite", "drive thru"],
+                "sandwich": ["sandwich", "sub", "panini", "club sandwich", "wrap"],
+                "noodles": ["noodles", "chowmein", "ramen", "spaghetti", "pasta", "hakka noodles"],
+                "dessert": ["dessert", "cake", "pastry", "ice cream", "sweet", "bakery", "mithai"],
+                "cake": ["cake", "birthday cake", "chocolate cake", "cheesecake", "red velvet"],
+                "ice cream": ["ice cream", "gelato", "sundae", "kulfi", "frozen yogurt"],
+                "vegetarian": ["vegetarian", "vegan", "plant-based", "veg", "salad", "organic"],
+                "salad": ["salad", "caesar", "greek salad", "healthy bowl", "quinoa"],
+                "juice": ["juice", "fresh juice", "smoothie", "milkshake", "lassi"],
+                "bar": ["bar", "pub", "cocktail", "beer", "wine", "whiskey", "nightlife"],
+                "continental": ["continental", "european", "steak", "pasta", "grilled", "roast"],
+                "mexican": ["mexican", "taco", "burrito", "nachos", "enchilada", "quesadilla"],
             }
 
             match_mask = pd.Series([False] * len(candidates), index=candidates.index)
 
             for pref in prefs_list:
-                synonyms = synonym_map.get(pref, [pref])
-                pattern = '|'.join([f"\\b{s}\\b" for s in synonyms])
+                keywords = keyword_map.get(pref, [pref])
+                pattern = '|'.join([f"\\b{s}\\b" for s in keywords])
 
                 name_match = candidates['name'].astype(str).str.lower().str.contains(pattern, regex=True, na=False)
                 cuisine_match = candidates['cuisine'].astype(str).str.lower().str.contains(pattern, regex=True, na=False)
@@ -271,7 +242,6 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
 
             candidates = candidates[match_mask]
 
-    # SORT BY RATING
     if 'rating' in candidates.columns and pd.api.types.is_numeric_dtype(candidates['rating']):
         candidates = candidates[candidates['rating'].notna()]
         candidates = candidates.sort_values('rating', ascending=False)
@@ -303,9 +273,6 @@ def get_similar(restaurant_id, similarity, meta, top_n=6):
     except:
         return pd.DataFrame()
 
-# ========================
-# UI CARD
-# ========================
 def card(row, key_prefix="", meta=None, similarity=None):
     with st.container():
         st.markdown(f"**{row['name']}**")
@@ -341,9 +308,6 @@ def card(row, key_prefix="", meta=None, similarity=None):
                         for _, s in sims.iterrows():
                             st.write(f"• {s['name']} ({s['cuisine']})")
 
-# ========================
-# MAIN APP
-# ========================
 def main():
     st.title("Kathmandu Restaurant Recommender")
     st.markdown("---")
@@ -355,7 +319,6 @@ def main():
         if key not in st.session_state:
             st.session_state[key] = False if key == "logged_in" else ("" if key in ["location", "preferences"] else None)
 
-    # === AUTH ===
     if not st.session_state.logged_in:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
@@ -396,7 +359,6 @@ def main():
                     st.rerun()
         return
 
-    # === SIDEBAR ===
     with st.sidebar:
         st.write(f"**{st.session_state.username}**")
         page = st.radio("Menu", ["Home", "Explore", "Location", "Preferences", "Reviews", "Logout"])
@@ -404,7 +366,6 @@ def main():
             st.session_state.clear()
             st.rerun()
 
-    # === PAGES ===
     if page == "Home":
         st.header("Recommended for You")
         recs = recommend_user(
@@ -431,11 +392,13 @@ def main():
             search_words = [w.strip() for w in search_lower.split() if w.strip()]
             mask = pd.Series([False] * len(df))
             for word in search_words:
-                synonyms = {
-                    "pizza": ["pizza", "pizzeria"], "burger": ["burger", "hamburger"],
-                    "coffee": ["coffee", "cafe"], "momo": ["momo", "dumpling"]
+                keywords = {
+                    "pizza": ["pizza", "pizzeria", "italian"], 
+                    "burger": ["burger", "hamburger"], 
+                    "momo": ["momo", "dumpling"],
+                    "coffee": ["coffee", "cafe"]
                 }.get(word, [word])
-                pattern = '|'.join([f"\\b{s}\\b" for s in synonyms])
+                pattern = '|'.join([f"\\b{s}\\b" for s in keywords])
                 mask |= (
                     df['name'].str.lower().str.contains(pattern, regex=True, na=False) |
                     df['cuisine'].str.lower().str.contains(pattern, regex=True, na=False) |
