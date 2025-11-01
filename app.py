@@ -1,6 +1,6 @@
 """
 FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender with Smart Matching
+Restaurant Recommender with Smart Matching + Professional UX
 EC3319 — Nilai University
 Supervisor: Subarna Sapkota
 """
@@ -13,8 +13,40 @@ import hashlib
 import pickle
 import math
 from pathlib import Path
+from datetime import datetime
 
-st.set_page_config(page_title="Kathmandu Restaurant Recommender", layout="wide")
+# ========================
+# CONFIG & THEME
+# ========================
+st.set_page_config(
+    page_title="Kathmandu Restaurant Recommender",
+    page_icon="",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS
+st.markdown("""
+<style>
+    .main {padding: 1rem;}
+    .stApp {background: linear-gradient(to right, #f8f9fa, #e9ecef);}
+    .card {
+        background: white;
+        padding: 1rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        margin: 0.5rem 0;
+        transition: transform 0.2s;
+    }
+    .card:hover {transform: translateY(-4px);}
+    .badge {background: #ff6b35; color: white; padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.8rem; margin: 0.2rem;}
+    .title {font-size: 2.5rem; font-weight: 700; color: #2c3e50; text-align: center;}
+    .subtitle {color: #7f8c8d; text-align: center; margin-bottom: 2rem;}
+    .footer {text-align: center; margin-top: 3rem; color: #95a5a6; font-size: 0.9rem;}
+    .profile {background: #3498db; color: white; padding: 1rem; border-radius: 12px; margin-bottom: 1rem;}
+    .chip {background: #e74c3c; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; margin: 0.2rem; display: inline-block;}
+</style>
+""", unsafe_allow_html=True)
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "restaurant_recommender.db"
@@ -23,6 +55,9 @@ MODEL_DIR = BASE_DIR / "recommender_model"
 SIMILARITY_PKL = MODEL_DIR / "similarity_matrix.pkl"
 RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 
+# ========================
+# INIT DB
+# ========================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -51,6 +86,9 @@ def init_db():
 
 init_db()
 
+# ========================
+# UTILS
+# ========================
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
 def safe_read_csv(path):
@@ -61,6 +99,9 @@ def safe_read_csv(path):
     except:
         return pd.DataFrame()
 
+# ========================
+# DATA LOADERS
+# ========================
 @st.cache_data
 def load_metadata():
     df = safe_read_csv(RESTAURANT_META_CSV)
@@ -110,6 +151,9 @@ def load_similarity():
     except:
         return None
 
+# ========================
+# DB OPERATIONS
+# ========================
 def get_user(username):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -178,7 +222,9 @@ def save_user_rating(username, restaurant_id, rating, review=""):
         conn.close()
     except: pass
 
+# ========================
 # SMART RECOMMENDATION
+# ========================
 def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -205,25 +251,25 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
                 "coffee": ["coffee", "cafe", "espresso", "latte", "cappuccino", "americano", "coffee shop", "barista"],
                 "tea": ["tea", "chai", "green tea", "black tea", "herbal tea", "tea house"],
                 "chinese": ["chinese", "sichuan", "cantonese", "dim sum", "wonton", "chow mein", "peking duck", "fried rice"],
-                "japanese": ["japanese", "sushi", "ramen", "sashimi", "tempura", "udon", "teriyaki", "sashimi"],
-                "korean": ["korean", "kimchi", "bibimbap", "bulgogi", "korean bbq", "samgyeopsal", "tteokbokki"],
-                "thai": ["thai", "pad thai", "tom yum", "green curry", "red curry", "thai food", "som tam"],
-                "vietnamese": ["vietnamese", "pho", "banh mi", "spring roll", "viet", "bun cha"],
-                "indian": ["indian", "north indian", "south indian", "curry", "biryani", "butter chicken", "tandoori", "naan"],
-                "nepali": ["nepali", "newari", "thakali", "momo", "dal bhat", "sel roti", "gundruk", "kwati"],
-                "momo": ["momo", "dumpling", "steam momo", "fried momo", "jhol momo"],
-                "fast food": ["fast food", "kfc", "mcdonald", "burger king", "quick bite", "drive thru"],
-                "sandwich": ["sandwich", "sub", "panini", "club sandwich", "wrap"],
-                "noodles": ["noodles", "chowmein", "ramen", "spaghetti", "pasta", "hakka noodles"],
-                "dessert": ["dessert", "cake", "pastry", "ice cream", "sweet", "bakery", "mithai"],
-                "cake": ["cake", "birthday cake", "chocolate cake", "cheesecake", "red velvet"],
-                "ice cream": ["ice cream", "gelato", "sundae", "kulfi", "frozen yogurt"],
-                "vegetarian": ["vegetarian", "vegan", "plant-based", "veg", "salad", "organic"],
-                "salad": ["salad", "caesar", "greek salad", "healthy bowl", "quinoa"],
-                "juice": ["juice", "fresh juice", "smoothie", "milkshake", "lassi"],
-                "bar": ["bar", "pub", "cocktail", "beer", "wine", "whiskey", "nightlife"],
-                "continental": ["continental", "european", "steak", "pasta", "grilled", "roast"],
-                "mexican": ["mexican", "taco", "burrito", "nachos", "enchilada", "quesadilla"],
+                "japanese": ["japanese", "sushi", "ramen", "sashimi", "tempura", "udon", "teriyaki"],
+                "korean": ["korean", "kimchi", "bibimbap", "bulgogi", "korean bbq", "samgyeopsal"],
+                "thai": ["thai", "pad thai", "tom yum", "green curry", "red curry", "thai food"],
+                "vietnamese": ["vietnamese", "pho", "banh mi", "spring roll", "viet"],
+                "indian": ["indian", "north indian", "south indian", "curry", "biryani", "butter chicken", "tandoori"],
+                "nepali": ["nepali", "newari", "thakali", "momo", "dal bhat", "sel roti", "gundruk"],
+                "momo": ["momo", "dumpling", "steam momo", "fried momo"],
+                "fast food": ["fast food", "kfc", "mcdonald", "burger king", "quick bite"],
+                "sandwich": ["sandwich", "sub", "panini", "club sandwich"],
+                "noodles": ["noodles", "chowmein", "ramen", "spaghetti", "pasta"],
+                "dessert": ["dessert", "cake", "pastry", "ice cream", "sweet", "bakery"],
+                "cake": ["cake", "birthday cake", "chocolate cake", "cheesecake"],
+                "ice cream": ["ice cream", "gelato", "sundae", "kulfi"],
+                "vegetarian": ["vegetarian", "vegan", "plant-based", "veg", "salad"],
+                "salad": ["salad", "caesar", "greek salad", "healthy bowl"],
+                "juice": ["juice", "fresh juice", "smoothie", "milkshake"],
+                "bar": ["bar", "pub", "cocktail", "beer", "wine"],
+                "continental": ["continental", "european", "steak", "pasta", "grilled"],
+                "mexican": ["mexican", "taco", "burrito", "nachos", "enchilada"],
             }
 
             match_mask = pd.Series([False] * len(candidates), index=candidates.index)
@@ -250,67 +296,50 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
 
     return candidates.head(top_n).reset_index(drop=True)
 
-def get_similar(restaurant_id, similarity, meta, top_n=6):
-    if similarity is None or meta.empty:
-        return pd.DataFrame()
-    try:
-        rid = str(restaurant_id)
-        if isinstance(similarity, pd.DataFrame):
-            if rid not in similarity.index:
-                return pd.DataFrame()
-            sims = similarity.loc[rid].sort_values(ascending=False)
-            sims = sims.drop(rid, errors='ignore')
-            top_ids = sims.head(top_n).index.astype(str).tolist()
-        else:
-            idx = meta[meta['restaurant_id'] == rid].index
-            if idx.empty: return pd.DataFrame()
-            i = idx[0]
-            scores = similarity[i]
-            order = np.argsort(-scores)
-            ids = meta.iloc[order]['restaurant_id'].astype(str).tolist()
-            top_ids = [x for x in ids if x != rid][:top_n]
-        return meta[meta['restaurant_id'].isin(top_ids)].copy()
-    except:
-        return pd.DataFrame()
-
+# ========================
+# ENHANCED CARD
+# ========================
 def card(row, key_prefix="", meta=None, similarity=None):
     with st.container():
-        st.markdown(f"**{row['name']}**")
-        st.write(f"*{row['cuisine']}* — {row['location']} — {row.get('price', 'N/A')}")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown(f"<div class='card'><h3>{row['name']}</h3>", unsafe_allow_html=True)
+            st.markdown(f"**{row['cuisine']}** — {row['location']}")
+            
+            rating_val = row.get('rating')
+            if pd.notna(rating_val) and rating_val != "":
+                try:
+                    rating_num = float(rating_val)
+                    stars = "⭐" * int(round(rating_num))
+                    st.write(f"{stars} {rating_num:.1f} • {row.get('price', 'N/A')}")
+                except:
+                    st.write(f"Rating: {rating_val}")
 
-        rating_val = row.get('rating')
-        if pd.notna(rating_val) and rating_val != "":
-            try:
-                rating_num = float(rating_val)
-                st.write(f"Rating: {rating_num:.1f}")
-            except (ValueError, TypeError):
-                st.write(f"Rating: {rating_val}")
-
-        tags = row.get('tags', '')
-        if tags:
-            st.caption(f"Tags: {tags}")
-
-        with st.expander("Details & Actions"):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("**Rate & Review**")
-                rating = st.selectbox("Rating", [5,4,3,2,1], key=f"rate_{key_prefix}_{row['restaurant_id']}")
-                review = st.text_area("Review", key=f"rev_{key_prefix}_{row['restaurant_id']}", height=70)
+            tags = row.get('tags', '')
+            if tags:
+                tag_list = [f"<span class='badge'>{t.strip()}</span>" for t in tags.split(",") if t.strip()]
+                st.markdown("".join(tag_list), unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        with col2:
+            with st.expander("Actions"):
+                rating = st.selectbox("Rate", [5,4,3,2,1], key=f"rate_{key_prefix}_{row['restaurant_id']}")
+                review = st.text_area("Review", key=f"rev_{key_prefix}_{row['restaurant_id']}", height=60)
                 if st.button("Submit", key=f"submit_{key_prefix}_{row['restaurant_id']}"):
                     save_user_rating(st.session_state.username, str(row['restaurant_id']), rating, review)
                     st.success("Saved!")
-            with col2:
                 if st.button("Show Similar", key=f"sim_{key_prefix}_{row['restaurant_id']}"):
                     sims = get_similar(row['restaurant_id'], similarity, meta)
-                    if sims.empty:
-                        st.info("No similar restaurants.")
-                    else:
+                    if not sims.empty:
                         for _, s in sims.iterrows():
-                            st.write(f"• {s['name']} ({s['cuisine']})")
+                            st.write(f"• {s['name']}")
 
+# ========================
+# MAIN APP
+# ========================
 def main():
-    st.title("Kathmandu Restaurant Recommender")
-    st.markdown("---")
+    # Header
+    st.markdown("<h1 class='title'>Kathmandu Restaurant Recommender</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='subtitle'>Find your perfect meal with AI-powered recommendations</p>", unsafe_allow_html=True)
 
     meta = load_metadata()
     similarity = load_similarity()
@@ -319,9 +348,11 @@ def main():
         if key not in st.session_state:
             st.session_state[key] = False if key == "logged_in" else ("" if key in ["location", "preferences"] else None)
 
+    # AUTH
     if not st.session_state.logged_in:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
             tab1, tab2, tab3 = st.tabs(["Login", "Sign Up", "Guest"])
             with tab1:
                 with st.form("login_form"):
@@ -336,7 +367,8 @@ def main():
                             if u:
                                 st.session_state.location = u["location"] or ""
                                 st.session_state.preferences = u["preferences"] or ""
-                            st.success("Logged in!")
+                            st.success("Welcome back!")
+                            st.balloons()
                             st.rerun()
                         else:
                             st.error("Invalid credentials.")
@@ -357,34 +389,51 @@ def main():
                     st.session_state.logged_in = True
                     st.session_state.username = "guest"
                     st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
         return
 
+    # SIDEBAR
     with st.sidebar:
-        st.write(f"**{st.session_state.username}**")
-        page = st.radio("Menu", ["Home", "Explore", "Location", "Preferences", "Reviews", "Logout"])
+        st.markdown(f"<div class='profile'><h3>👤 {st.session_state.username}</h3>", unsafe_allow_html=True)
+        if st.session_state.location:
+            st.write(f"📍 {st.session_state.location}")
+        if st.session_state.preferences:
+            prefs = st.session_state.preferences.split(",")
+            chips = "".join([f"<span class='chip'>{p.strip()}</span>" for p in prefs if p.strip()])
+            st.markdown(chips, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        page = st.radio("Menu", [
+            "Home", "Explore", "Location", 
+            "Preferences", "Reviews", "Logout"
+        ], format_func=lambda x: f"{x}")
+
         if page == "Logout":
             st.session_state.clear()
             st.rerun()
 
+    # PAGES
     if page == "Home":
-        st.header("Recommended for You")
-        recs = recommend_user(
-            st.session_state.username, meta, similarity,
-            st.session_state.location, st.session_state.preferences
-        )
+        st.markdown("### Recommended for You")
+        with st.spinner("Finding best matches..."):
+            recs = recommend_user(
+                st.session_state.username, meta, similarity,
+                st.session_state.location, st.session_state.preferences
+            )
         if recs.empty:
             st.info("No recommendations. Try setting location or preferences.")
         else:
-            cols = st.columns(3)
+            cols = st.columns(2)
             for i, row in recs.iterrows():
-                with cols[i % 3]:
+                with cols[i % 2]:
                     card(row, f"home_{i}", meta, similarity)
 
     elif page == "Explore":
-        st.header("Explore Restaurants")
-        search = st.text_input("Search")
-        cuisine_filter = st.multiselect("Cuisine", sorted(meta['cuisine'].unique()))
+        st.markdown("### Explore Restaurants")
+        search = st.text_input("Search by name, cuisine, or location")
+        cuisine_filter = st.multiselect("Filter by Cuisine", sorted(meta['cuisine'].unique()))
         loc_filter = st.selectbox("Location", ["Any"] + sorted(meta['location'].unique()))
+        sort_by = st.selectbox("Sort by", ["Rating", "Name", "Price"])
 
         df = meta.copy()
         if search:
@@ -392,17 +441,10 @@ def main():
             search_words = [w.strip() for w in search_lower.split() if w.strip()]
             mask = pd.Series([False] * len(df))
             for word in search_words:
-                keywords = {
-                    "pizza": ["pizza", "pizzeria", "italian"], 
-                    "burger": ["burger", "hamburger"], 
-                    "momo": ["momo", "dumpling"],
-                    "coffee": ["coffee", "cafe"]
-                }.get(word, [word])
-                pattern = '|'.join([f"\\b{s}\\b" for s in keywords])
+                pattern = '|'.join([f"\\b{s}\\b" for s in [word]])
                 mask |= (
                     df['name'].str.lower().str.contains(pattern, regex=True, na=False) |
-                    df['cuisine'].str.lower().str.contains(pattern, regex=True, na=False) |
-                    (df['tags'].str.lower().str.contains(pattern, regex=True, na=False) if 'tags' in df.columns else pd.Series([False]*len(df)))
+                    df['cuisine'].str.lower().str.contains(pattern, regex=True, na=False)
                 )
             df = df[mask]
         if cuisine_filter:
@@ -410,58 +452,84 @@ def main():
         if loc_filter != "Any":
             df = df[df['location'] == loc_filter]
 
+        if sort_by == "Rating" and 'rating' in df.columns:
+            df = df.sort_values('rating', ascending=False, na_position='last')
+        elif sort_by == "Name":
+            df = df.sort_values('name')
+
         total = len(df)
-        per_page = 12
+        per_page = 6
         pages = math.ceil(total / per_page) if total > 0 else 1
-        page_num = st.number_input("Page", 1, pages, 1)
+        col_prev, col_page, col_next = st.columns([1, 2, 1])
+        page_num = col_page.number_input("Page", 1, pages, 1, step=1)
+        if col_prev.button("Previous") and page_num > 1:
+            page_num -= 1
+            st.rerun()
+        if col_next.button("Next") and page_num < pages:
+            page_num += 1
+            st.rerun()
+
         start = (page_num - 1) * per_page
         page_df = df.iloc[start:start + per_page]
 
-        st.write(f"Showing {len(page_df)} of {total}")
-        cols = st.columns(3)
+        st.write(f"Showing {len(page_df)} of {total} restaurants")
+        cols = st.columns(2)
         for i, row in page_df.iterrows():
-            with cols[i % 3]:
+            with cols[i % 2]:
                 card(row, f"exp_{i}", meta, similarity)
 
     elif page == "Location":
-        st.header("Set Your Location")
+        st.markdown("### Set Your Location")
         locs = [""] + sorted(meta['location'].unique().tolist())
         current = st.session_state.location or ""
-        choice = st.selectbox("Choose area", locs, index=locs.index(current) if current in locs else 0)
-        if st.button("Save"):
+        choice = st.selectbox("Choose your area", locs, index=locs.index(current) if current in locs else 0)
+        if st.button("Save Location"):
             st.session_state.location = choice
             if st.session_state.username != "guest":
                 update_user_location(st.session_state.username, choice)
-            st.success("Location saved!")
+            st.success(f"Location set to **{choice}**. Showing nearby restaurants.")
+            st.balloons()
 
     elif page == "Preferences":
-        st.header("Your Preferences")
+        st.markdown("### Your Food Preferences")
         current_prefs = st.session_state.preferences or ""
         default_prefs = [c.strip() for c in current_prefs.split(",") if c.strip()]
-        cuisines = st.multiselect("Favorite cuisines", sorted(meta['cuisine'].unique()), default=default_prefs)
-        if st.button("Save"):
+        cuisines = st.multiselect("What do you love to eat?", sorted(meta['cuisine'].unique()), default=default_prefs)
+        if st.button("Save Preferences"):
             prefs = ",".join(cuisines)
             st.session_state.preferences = prefs
             if st.session_state.username != "guest":
                 update_user_preferences(st.session_state.username, prefs)
-            st.success("Preferences saved!")
+            st.success("Preferences updated! Your recommendations are now personalized.")
+            st.snow()
 
     elif page == "Reviews":
-        st.header("My Reviews")
+        st.markdown("### My Reviews")
         try:
             conn = sqlite3.connect(DB_PATH)
-            df = pd.read_sql("SELECT restaurant_id, rating, review FROM ratings WHERE username=?", conn, params=(st.session_state.username,))
+            df = pd.read_sql("SELECT restaurant_id, rating, review, created_at FROM ratings WHERE username=? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
             conn.close()
             if df.empty:
-                st.info("No reviews yet.")
+                st.info("You haven't reviewed any restaurants yet.")
             else:
                 for _, r in df.iterrows():
                     name = meta[meta['restaurant_id'] == r['restaurant_id']]['name'].iloc[0] if not meta[meta['restaurant_id'] == r['restaurant_id']].empty else "Unknown"
-                    st.write(f"**{name}** — {r['rating']} stars")
+                    stars = "⭐" * r['rating']
+                    st.markdown(f"#### {name}")
+                    st.write(f"{stars} • {r['created_at'][:10]}")
                     if r['review']:
-                        st.caption(r['review'])
+                        st.caption(f"_{r['review']}_")
+                    st.markdown("---")
         except:
             st.info("No reviews.")
+
+    # Footer
+    st.markdown("""
+    <div class='footer'>
+        <p>Nilai University — Final Year Project by <strong>Krish Chakradhar (00020758)</strong></p>
+        <p>EC3319 • Supervisor: Subarna Sapkota • Bachelor of Information Technology (Hons)</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
