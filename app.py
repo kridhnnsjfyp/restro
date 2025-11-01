@@ -1,8 +1,7 @@
 # restro/app.py
 """
 Streamlit Restaurant Recommender App
-====================================
-Run with:
+Run this using:
     streamlit run app.py
 """
 
@@ -16,7 +15,7 @@ from sqlalchemy import create_engine, text
 from pathlib import Path
 
 # -----------------------------
-# Paths and setup
+# PATH SETUP
 # -----------------------------
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "restaurant_recommender.db"
@@ -27,7 +26,7 @@ RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 RATING_MATRIX_CSV = MODEL_DIR / "rating_matrix.csv"
 
 # -----------------------------
-# Helper functions
+# DATABASE SETUP
 # -----------------------------
 def get_db_connection():
     return create_engine(f"sqlite:///{DB_PATH}")
@@ -58,11 +57,14 @@ def init_db():
         """))
     engine.dispose()
 
+# -----------------------------
+# PASSWORD HASHING
+# -----------------------------
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 # -----------------------------
-# Data loading
+# DATA LOADING
 # -----------------------------
 @st.cache_data(show_spinner=False)
 def load_restaurant_metadata():
@@ -87,7 +89,7 @@ def load_rating_matrix():
     return pd.read_csv(RATING_MATRIX_CSV, index_col=0)
 
 # -----------------------------
-# Database user functions
+# USER DATABASE FUNCTIONS
 # -----------------------------
 def get_user(username):
     engine = get_db_connection()
@@ -99,25 +101,36 @@ def get_user(username):
     return user
 
 def create_user(username, email, password):
-    try:
-        engine = get_db_connection()
-        with engine.connect() as conn:
-            conn.execute(text("""
-                INSERT INTO users (username, email, password_hash) VALUES (:u, :e, :p)
-            """), {"u": username, "e": email, "p": hash_password(password)})
-        engine.dispose()
-        return True, "User created successfully!"
-    except Exception as e:
-        return False, str(e)
-
-def verify_user(username, password):
+    """Create a new user if username is unique."""
     engine = get_db_connection()
     with engine.connect() as conn:
-        res = conn.execute(text("""
-            SELECT * FROM users WHERE username=:u AND password_hash=:p
-        """), {"u": username, "p": hash_password(password)}).fetchone()
+        existing = conn.execute(text("SELECT username FROM users WHERE username = :u"), {"u": username}).fetchone()
+        if existing:
+            engine.dispose()
+            return False, "Username already taken. Please choose another."
+
+        try:
+            conn.execute(text("""
+                INSERT INTO users (username, email, password_hash)
+                VALUES (:u, :e, :p)
+            """), {"u": username, "e": email, "p": hash_password(password)})
+            engine.dispose()
+            return True, "User created successfully!"
+        except Exception as e:
+            engine.dispose()
+            return False, f"Database error: {str(e)}"
+
+def verify_user(username, password):
+    """Verify user credentials."""
+    engine = get_db_connection()
+    with engine.connect() as conn:
+        user = conn.execute(text("SELECT password_hash FROM users WHERE username = :u"), {"u": username}).fetchone()
     engine.dispose()
-    return res is not None
+
+    if not user:
+        return False
+    stored_hash = user[0]
+    return stored_hash == hash_password(password)
 
 def update_user_location(username, location):
     engine = get_db_connection()
@@ -141,10 +154,9 @@ def save_user_rating(username, restaurant_id, rating, review):
     engine.dispose()
 
 # -----------------------------
-# Recommendation logic
+# RECOMMENDATION FUNCTION
 # -----------------------------
 def recommend_for_user(username, ratings_df, rest_meta, similarity, location=None, prefs=None, top_n=10):
-    # Simple fallback: recommend top-rated nearby restaurants matching preferences
     df = rest_meta.copy()
     if location:
         df = df[df["location"].astype(str).str.lower() == location.lower()]
@@ -154,24 +166,22 @@ def recommend_for_user(username, ratings_df, rest_meta, similarity, location=Non
     return df.sort_values("rating", ascending=False).head(top_n)
 
 # -----------------------------
-# Streamlit UI
+# STREAMLIT APP START
 # -----------------------------
 def main():
     st.set_page_config(page_title="Kathmandu Restaurant Recommender", layout="wide")
     init_db()
 
-    # Load model/data
     rest_meta = load_restaurant_metadata()
     sim = load_similarity_matrix()
     ratings_df = load_rating_matrix()
 
-    # Session setup
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
 
-    # --------------------------
-    # Centered Login / Signup
-    # --------------------------
+    # --------------------------------
+    # LOGIN / SIGNUP CENTERED FORM
+    # --------------------------------
     if not st.session_state["logged_in"]:
         st.markdown("<h1 style='text-align:center;'>🍽 Kathmandu Restaurant Recommender</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align:center; font-size:18px;'>Get personalized restaurant recommendations in Kathmandu.</p>", unsafe_allow_html=True)
@@ -208,9 +218,9 @@ def main():
                 if st.button("Sign Up", use_container_width=True):
                     ok, msg = create_user(new_username, email, new_password)
                     if ok:
-                        st.success("Account created successfully! You can now log in.")
+                        st.success("✅ Account created successfully! You can now log in.")
                     else:
-                        st.error(f"Error: {msg}")
+                        st.error(f"❌ {msg}")
 
             # GUEST MODE
             with tab_guest:
@@ -227,9 +237,9 @@ def main():
         st.markdown("<p style='text-align:center; color:gray;'>Developed as part of Final Year Project — AI-based Restaurant Recommender System</p>", unsafe_allow_html=True)
         return
 
-    # --------------------------
-    # Logged-in Section
-    # --------------------------
+    # --------------------------------
+    # LOGGED IN SECTION
+    # --------------------------------
     username = st.session_state.get("username", "guest")
     st.sidebar.title(f"Hi, {username}")
     page = st.sidebar.radio("Navigate", ["Home", "Set My Location", "Explore", "Preferences", "My Reviews", "Logout"])
@@ -297,6 +307,6 @@ def main():
             save_user_rating(username, rid, rating, review)
             st.success("Review saved. Thank you for your feedback!")
 
-# Run
+# Run the app
 if __name__ == "__main__":
     main()
