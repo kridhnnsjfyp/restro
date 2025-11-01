@@ -1,8 +1,7 @@
 # restro/app.py
 """
-Streamlit Restaurant Recommender App
-------------------------------------
-Run this using:
+Kathmandu Restaurant Recommender System
+Run locally using:
     streamlit run app.py
 """
 
@@ -15,7 +14,7 @@ import pickle
 from pathlib import Path
 
 # -----------------------------
-# PATHS AND FILES
+# PATH SETUP
 # -----------------------------
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "restaurant_recommender.db"
@@ -28,9 +27,10 @@ RATING_MATRIX_CSV = MODEL_DIR / "rating_matrix.csv"
 # -----------------------------
 # ENSURE DATABASE EXISTS
 # -----------------------------
-if not DB_PATH.exists():
+def ensure_db():
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE,
@@ -40,7 +40,7 @@ if not DB_PATH.exists():
             preferences TEXT
         );
     """)
-    conn.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS ratings (
             rating_id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT,
@@ -53,6 +53,8 @@ if not DB_PATH.exists():
     conn.commit()
     conn.close()
 
+ensure_db()  # Run once on startup
+
 # -----------------------------
 # PASSWORD HASHING
 # -----------------------------
@@ -63,7 +65,6 @@ def hash_password(password: str) -> str:
 # USER DATABASE FUNCTIONS
 # -----------------------------
 def get_user(username):
-    """Fetch user details from SQLite DB."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -78,7 +79,6 @@ def create_user(username, email, password):
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
 
-        # Check if username already exists
         cur.execute("SELECT username FROM users WHERE username = ?", (username,))
         if cur.fetchone():
             conn.close()
@@ -96,13 +96,11 @@ def create_user(username, email, password):
         return False, f"Database error: {str(e)}"
 
 def verify_user(username, password):
-    """Check if username/password match."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
     result = cur.fetchone()
     conn.close()
-
     if not result:
         return False
     stored_hash = result[0]
@@ -133,7 +131,7 @@ def save_user_rating(username, restaurant_id, rating, review):
     conn.close()
 
 # -----------------------------
-# LOAD DATASETS
+# DATA LOADING
 # -----------------------------
 @st.cache_data(show_spinner=False)
 def load_restaurant_metadata():
@@ -216,10 +214,15 @@ def main():
                 new_username = st.text_input("Choose a username", key="signup_user")
                 email = st.text_input("Email", key="signup_email")
                 new_password = st.text_input("Choose a password", type="password", key="signup_pass")
+
                 if st.button("Sign Up", use_container_width=True):
                     ok, msg = create_user(new_username, email, new_password)
                     if ok:
                         st.success("✅ Account created successfully! You can now log in.")
+                        # Clear signup fields
+                        st.session_state["signup_user"] = ""
+                        st.session_state["signup_email"] = ""
+                        st.session_state["signup_pass"] = ""
                     else:
                         st.error(f"❌ {msg}")
 
