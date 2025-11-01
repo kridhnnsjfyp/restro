@@ -26,13 +26,11 @@ RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 RATING_MATRIX_CSV = MODEL_DIR / "rating_matrix.csv"
 
 # -----------------------------
-# DATABASE INIT
+# ENSURE DATABASE EXISTS
 # -----------------------------
-def init_db():
-    """Initialize tables if not exist."""
+if not DB_PATH.exists():
     conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE,
@@ -42,7 +40,7 @@ def init_db():
             preferences TEXT
         );
     """)
-    cur.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS ratings (
             rating_id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT,
@@ -176,7 +174,6 @@ def recommend_for_user(username, ratings_df, rest_meta, similarity, location=Non
 # -----------------------------
 def main():
     st.set_page_config(page_title="Kathmandu Restaurant Recommender", layout="wide")
-    init_db()
 
     rest_meta = load_restaurant_metadata()
     sim = load_similarity_matrix()
