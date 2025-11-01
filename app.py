@@ -1,420 +1,553 @@
-# app.py
-# Restaurant Recommender – FYP EC3319
-# Krish Chakradhar – 00020758
-# FINAL: FAVORITES + RATINGS WORK — NO REDIRECT
+# restro/app.py
+"""
+Streamlit Restaurant Recommender App
+Place this file at restro/app.py
+
+Requirements:
+  pip install streamlit pandas numpy sqlalchemy
+Run:
+  cd restro
+  streamlit run app.py
+"""
 
 import streamlit as st
 import pandas as pd
-import pickle
+import numpy as np
 import sqlite3
 import hashlib
-import os
+import pickle
+from pathlib import Path
+from sqlalchemy import create_engine, text
 
-# ========================================
-# CONFIG
-# ========================================
-st.set_page_config(page_title="Foodmandu Recommender", layout="centered", initial_sidebar_state="expanded")
+# -----------------------------
+# Configuration / file paths
+# -----------------------------
+BASE_DIR = Path(__file__).parent
+DB_PATH = BASE_DIR / "restaurant_recommender.db"
 
-# DARK THEME + STYLING
-st.markdown("""
-<style>
-    .main {background-color: #1a202c; padding: 0 !important; margin: 0 !important;}
-    .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important;}
-    header, #MainMenu, footer, .stDeployButton, div[data-testid="stToolbar"] {display: none !important;}
-    
-    .stTextInput > div > div > input {
-        background-color: #2d3748 !important; color: white !important; border-radius: 10px !important;
-        border: 1px solid #4a5568 !important;
-    }
-    .stTextInput > label {color: #e2e8f0 !important; font-weight: 600 !important;}
-    
-    .login-container {
-        max-width: 420px; margin: 2rem auto; padding: 2.5rem; background: #1a202c; 
-        border-radius: 16px; box-shadow: 0 12px 35px rgba(0,0,0,0.3); color: white; border: 1px solid #2d3748;
-    }
-    .title {font-size: 2.8rem; font-weight: 800; color: #4299e1; text-align: center; margin: 1rem 0 0.5rem;}
-    .subtitle {text-align: center; color: #a0aec0; font-size: 1.1rem; margin-bottom: 2rem;}
-    
-    .stButton>button {
-        background: #4299e1; color: white; border-radius: 10px; font-weight: 600; 
-        padding: 0.7rem; width: 100%; border: none;
-    }
-    .stButton>button:hover {background: #3182ce;}
-    .stButton > button[type="secondary"] {background: #48bb78 !important;}
-    .stButton > button[type="secondary"]:hover {background: #38a169 !important;}
-    
-    .card {background: #2d3748; color: white; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; 
-           box-shadow: 0 4px 12px rgba(0,0,0,0.2); border: 1px solid #4a5568;}
-    .similar-card {background: #1a202c; color: white; border-radius: 10px; padding: 1rem; margin: 0.5rem 0; 
-                   border: 1px dashed #4a5568; font-size: 0.9rem;}
-    .tag {background: #4299e1; color: white; padding: 0.3rem 0.8rem; border-radius: 20px; 
-          font-size: 0.8rem; display: inline-block; margin: 0.2rem;}
-    .similarity-badge {background: #48bb78; color: white; padding: 0.2rem 0.6rem; border-radius: 12px; 
-                       font-size: 0.75rem; font-weight: 600; display: inline-block; margin-left: 0.5rem;}
-    .heart-filled {color: #e53e3e; font-size: 1.4rem;}
-    .heart-empty {color: #718096; font-size: 1.4rem;}
-</style>
-""", unsafe_allow_html=True)
+MODEL_DIR = BASE_DIR / "recommender_model"
+SIMILARITY_PKL = MODEL_DIR / "similarity_matrix.pkl"
+RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
+RATING_MATRIX_CSV = MODEL_DIR / "rating_matrix.csv"
+USER_PREFS_CSV = MODEL_DIR / "user_preferences.csv"  # optional local fallback
 
-MODEL_DIR = "recommender_model"
-DB_PATH = "/tmp/restaurant_recommender.db"
+# -----------------------------
+# Utilities
+# -----------------------------
+def get_db_connection():
+    engine = create_engine(f"sqlite:///{DB_PATH}")
+    return engine
 
-# ========================================
-# INIT DB
-# ========================================
 def init_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cur = conn.cursor()
-    cur.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, email TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)')
-    cur.execute('CREATE TABLE IF NOT EXISTS preferences (user_id INTEGER PRIMARY KEY, pref_location TEXT, pref_cuisine TEXT, last_location TEXT, search_count INTEGER DEFAULT 0)')
-    cur.execute('CREATE TABLE IF NOT EXISTS favorites (user_id INTEGER, restaurant TEXT, UNIQUE(user_id, restaurant))')
-    cur.execute('CREATE TABLE IF NOT EXISTS ratings (user_id INTEGER, restaurant TEXT, rating INTEGER, UNIQUE(user_id, restaurant))')
-    cur.execute('CREATE TABLE IF NOT EXISTS interactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, restaurant TEXT, action TEXT, timestamp TEXT DEFAULT CURRENT_TIMESTAMP)')
-    conn.commit()
-    return conn
+    """Create tables if they don't exist"""
+    engine = get_db_connection()
+    with engine.connect() as conn:
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            email TEXT,
+            password_hash TEXT,
+            location TEXT,
+            preferences TEXT
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS ratings (
+            rating_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            restaurant_id TEXT,
+            rating INTEGER,
+            review TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        """))
+    engine.dispose()
 
-conn = init_db()
-cur = conn.cursor()
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
-# ========================================
-# LOAD MODEL + PRICE RANGE
-# ========================================
-@st.cache_resource
-def load_model():
-    sim_path = f"{MODEL_DIR}/similarity_matrix.pkl"
-    meta_path = f"{MODEL_DIR}/restaurant_metadata.csv"
-    food_path = f"{MODEL_DIR}/food_prices.csv"
-
-    if not os.path.exists(sim_path) or not os.path.exists(meta_path):
-        st.error("Model files missing. Upload `recommender_model/` folder.")
-        st.stop()
-
-    with open(sim_path, 'rb') as f:
-        sim_df = pickle.load(f)
-
-    meta = pd.read_csv(meta_path)
-    meta['Location'] = meta['Location'].str.title()
-    meta['Cuisine Type'] = meta['Cuisine Type'].str.title()
-    meta['Price Range'] = ""
-
-    if os.path.exists(food_path):
-        food_df = pd.read_csv(food_path)
-        food_df['Restaurant'] = food_df['Restaurant'].str.strip()
-        food_df['Price'] = pd.to_numeric(food_df['Price'], errors='coerce')
-        food_df = food_df.dropna(subset=['Price'])
-        if not food_df.empty:
-            price_agg = food_df.groupby('Restaurant')['Price'].agg(['min', 'max']).reset_index()
-            price_agg['Range'] = price_agg.apply(lambda x: f"Rs. {int(x['min'])} – Rs. {int(x['max'])}", axis=1)
-            meta = meta.merge(price_agg[['Restaurant', 'Range']], left_on='Restaurant Name', right_on='Restaurant', how='left')
-            meta['Price Range'] = meta['Range'].fillna("")
-            meta.drop(columns=['Restaurant', 'Range'], inplace=True, errors='ignore')
-    return sim_df, meta
-
-similarity_df, rest_metadata = load_model()
-
-# ========================================
-# DB HELPERS
-# ========================================
-def ensure_preference_row(user_id):
-    try: cur.execute("INSERT OR IGNORE INTO preferences (user_id, search_count) VALUES (?, 0)", (user_id,)); conn.commit()
-    except: pass
-
-def get_preference(user_id, field):
-    ensure_preference_row(user_id)
-    try:
-        cur.execute(f"SELECT {field} FROM preferences WHERE user_id=?", (user_id,))
-        row = cur.fetchone()
-        return row[0] if row and row[0] else None
-    except: return None
-
-def increment_search_count(user_id):
-    try: cur.execute("UPDATE preferences SET search_count = search_count + 1 WHERE user_id=?", (user_id,)); conn.commit()
-    except: pass
-
-def set_preference(user_id, **kwargs):
-    ensure_preference_row(user_id)
-    try:
-        updates = ", ".join([f"{k}=?" for k in kwargs])
-        values = list(kwargs.values()) + [user_id]
-        cur.execute(f"UPDATE preferences SET {updates} WHERE user_id=?", values)
-        conn.commit()
-    except: pass
-
-def is_favorite(user_id, rest_name):
-    cur.execute("SELECT 1 FROM favorites WHERE user_id=? AND restaurant=?", (user_id, rest_name))
-    return cur.fetchone() is not None
-
-def toggle_favorite(user_id, rest_name):
-    if is_favorite(user_id, rest_name):
-        cur.execute("DELETE FROM favorites WHERE user_id=? AND restaurant=?", (user_id, rest_name))
-        conn.commit()
-        return False
+# -----------------------------
+# Load model/data
+# -----------------------------
+@st.cache_data(show_spinner=False)
+def load_restaurant_metadata():
+    df = pd.read_csv(RESTAURANT_META_CSV)
+    # Normalize columns: ensure 'restaurant_id', 'name', 'location', 'cuisine', 'rating', 'price' exist if possible
+    # Attempt some common column names
+    colmap = {}
+    if 'restaurant_id' not in df.columns:
+        for candidate in ['id', 'resto_id', 'restaurantId', 'restaurantId']:
+            if candidate in df.columns:
+                colmap[candidate] = 'restaurant_id'
+                break
+    if 'name' not in df.columns:
+        for candidate in ['restaurant_name', 'rest_name', 'title']:
+            if candidate in df.columns:
+                colmap[candidate] = 'name'
+                break
+    if 'location' not in df.columns and 'area' in df.columns:
+        colmap['area'] = 'location'
+    if 'cuisine' not in df.columns:
+        for candidate in ['food_type', 'cuisines', 'category']:
+            if candidate in df.columns:
+                colmap[candidate] = 'cuisine'
+                break
+    if colmap:
+        df = df.rename(columns=colmap)
+    # Fill missing fields to avoid errors
+    if 'restaurant_id' not in df.columns:
+        df.insert(0, 'restaurant_id', df.index.astype(str))
+    if 'name' not in df.columns:
+        df['name'] = df['restaurant_id'].astype(str)
+    # Ensure rating numeric if exists
+    if 'rating' in df.columns:
+        df['rating'] = pd.to_numeric(df['rating'], errors='coerce')
     else:
-        cur.execute("INSERT OR IGNORE INTO favorites (user_id, restaurant) VALUES (?, ?)", (user_id, rest_name))
-        conn.commit()
-        return True
+        df['rating'] = np.nan
+    # price normalization
+    if 'price' not in df.columns:
+        # try to infer
+        for c in ['price_range', 'cost']:
+            if c in df.columns:
+                df = df.rename(columns={c: 'price'})
+                break
+    return df
 
-def get_user_rating(user_id, rest_name):
-    cur.execute("SELECT rating FROM ratings WHERE user_id=? AND restaurant=?", (user_id, rest_name))
-    row = cur.fetchone()
-    return row[0] if row else 0
+@st.cache_data(show_spinner=False)
+def load_similarity_matrix():
+    # Could be a numpy array or DataFrame pickled.
+    if not SIMILARITY_PKL.exists():
+        st.warning("No similarity matrix found at recommender_model/similarity_matrix.pkl.")
+        return None
+    with open(SIMILARITY_PKL, 'rb') as f:
+        sim = pickle.load(f)
+    # If sim is a DataFrame keep it; if numpy array, return as-is
+    return sim
 
-def set_user_rating(user_id, rest_name, rating):
-    cur.execute("INSERT OR REPLACE INTO ratings (user_id, restaurant, rating) VALUES (?, ?, ?)", (user_id, rest_name, rating))
-    conn.commit()
+@st.cache_data(show_spinner=False)
+def load_rating_matrix():
+    if not RATING_MATRIX_CSV.exists():
+        return None
+    df = pd.read_csv(RATING_MATRIX_CSV, index_col=0)
+    # Many rating matrices store users as index and restaurants as columns.
+    return df
 
-def log_interaction(user_id, restaurant, action):
-    try:
-        cur.execute("INSERT INTO interactions (user_id, restaurant, action) VALUES (?, ?, ?)", (user_id, restaurant, action))
-        conn.commit()
-    except: pass
+# -----------------------------
+# Recommendation logic
+# -----------------------------
+def get_user_row_from_rating_matrix(ratings_df: pd.DataFrame, username: str):
+    """
+    Try to find the user's row in the rating matrix.
+    Accepts both where users are index or where columns are users.
+    Returns a pandas Series of item ratings (index: restaurant_id).
+    """
+    if ratings_df is None:
+        return None
+    # if username matches index
+    if str(username) in ratings_df.index.astype(str).tolist():
+        row = ratings_df.loc[str(username)]
+        return row.dropna()
+    # if username present as column
+    if str(username) in ratings_df.columns.astype(str).tolist():
+        row = ratings_df[str(username)]
+        return row.dropna()
+    # otherwise return None
+    return None
 
-# ========================================
-# PAGES
-# ========================================
-def page_auth():
-    st.markdown('<div class="title">Foodmandu Recommender</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Find the best restaurants near you</div>', unsafe_allow_html=True)
-    with st.container():
-        st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        if 'show_register' not in st.session_state: st.session_state.show_register = False
-        if st.session_state.show_register:
-            st.markdown("### Create Account")
-            with st.form("register_form"):
-                reg_u = st.text_input("Username", placeholder="Enter username", key="reg_u")
-                reg_p = st.text_input("Password", type="password", placeholder="Create password", key="reg_p")
-                reg_e = st.text_input("Email", placeholder="your@email.com", key="reg_e")
-                col1, col2 = st.columns(2)
-                with col1: reg_submit = st.form_submit_button("Create Account")
-                with col2: back = st.form_submit_button("Back to Login")
-                if back: st.session_state.show_register = False; st.rerun()
-                if reg_submit:
-                    if register(reg_u, reg_p, reg_e):
-                        st.success("Account created! Login now.")
-                        st.session_state.show_register = False
-                    else:
-                        st.error("Username taken.")
-        else:
-            st.markdown("### Login")
-            with st.form("login_form"):
-                username = st.text_input("Username", placeholder="Enter username")
-                password = st.text_input("Password", type="password", placeholder="Enter password")
-                submit = st.form_submit_button("Login")
-                if submit:
-                    uid = login(username, password)
-                    if uid:
-                        st.session_state.user_id = uid
-                        st.session_state.username = username
-                        ensure_preference_row(uid)
-                        st.success("Login successful!")
-                        st.rerun()
-                    else:
-                        st.error("Invalid credentials")
-            if st.button("Create New Account", use_container_width=True, type="secondary"):
-                st.session_state.show_register = True
-                st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+def recommend_for_user(username: str,
+                       ratings_df: pd.DataFrame,
+                       rest_meta: pd.DataFrame,
+                       similarity,
+                       top_n=10,
+                       location=None,
+                       preferences=None):
+    """
+    Item-based CF:
+      - find items user rated positively (>=4 if integer scale) OR top-k
+      - aggregate similarity vectors weighted by rating
+      - remove items user already rated
+      - return top_n restaurants from rest_meta
+    If user has no history, fall back to content-based/popularity in location + preferences
+    """
+    # 1. Try to get user's rated items
+    user_row = get_user_row_from_rating_matrix(ratings_df, username)
+    if user_row is not None and len(user_row) > 0:
+        # consider ratings >= 4 as positive signals; fallback: take top 5 rated by user
+        try:
+            # ensure numeric
+            user_ratings = pd.to_numeric(user_row, errors='coerce').dropna()
+        except Exception:
+            user_ratings = user_row
+        positive = user_ratings[user_ratings >= 4]
+        if positive.empty:
+            # pick top 5 items the user rated
+            positive = user_ratings.sort_values(ascending=False).head(5)
 
-def get_similar_restaurants_with_score(rest_name, top_n=2):
-    if rest_name not in similarity_df.index:
+        # similarity can be DataFrame (idx: restaurant_id)
+        # We'll accumulate scores in a dict
+        scores = {}
+        # mapping restaurant ids
+        for rest_id, rating in positive.items():
+            rest_id = str(rest_id)
+            # try to locate similarity vector
+            if isinstance(similarity, pd.DataFrame):
+                if rest_id not in similarity.index.astype(str).tolist():
+                    continue
+                sim_vec = similarity.loc[str(rest_id)]
+                # convert to Series with rest ids
+                sim_series = pd.Series(sim_vec.values, index=similarity.columns.astype(str))
+            elif isinstance(similarity, np.ndarray):
+                # if numpy array, we need indices mapping -- best-effort: assume order matches metadata
+                # We'll map by metadata order: restaurant_meta['restaurant_id']
+                sim_series = None
+            else:
+                sim_series = None
+
+            if sim_series is None:
+                continue
+
+            # weight by rating
+            weighted = sim_series * float(rating)
+            for r, s in weighted.items():
+                scores[str(r)] = scores.get(str(r), 0.0) + float(s)
+
+        # create DataFrame of scores
+        if not scores:
+            # fallback
+            candidate = fallback_recommendation(rest_meta, location, preferences, top_n)
+            return candidate
+
+        scores_df = pd.DataFrame.from_dict(scores, orient='index', columns=['score'])
+        # remove items the user already rated
+        already_rated = user_row.index.astype(str).tolist()
+        scores_df = scores_df[~scores_df.index.isin(already_rated)]
+        # join with metadata to filter by location & preferences
+        meta = rest_meta.copy()
+        meta['restaurant_id'] = meta['restaurant_id'].astype(str)
+        merged = scores_df.merge(meta, left_index=True, right_on='restaurant_id', how='left')
+        if location:
+            merged = merged[merged['location'].astype(str).str.lower() == str(location).lower()]
+        if preferences:
+            # preferences is list or comma-separated string
+            pref_list = preferences if isinstance(preferences, list) else [p.strip().lower() for p in str(preferences).split(',') if p.strip()]
+            if pref_list:
+                # try match cuisine or tags
+                merged = merged[merged['cuisine'].astype(str).str.lower().apply(
+                    lambda x: any(p in x for p in pref_list) if isinstance(x, str) else False
+                ) | merged['tags'].astype(str).str.lower().apply(
+                    lambda x: any(p in x for p in pref_list) if isinstance(x, str) else False
+                )]
+        merged = merged.sort_values('score', ascending=False)
+        # return top_n merged
+        return merged.head(top_n).drop(columns=['score']).reset_index(drop=True)
+    else:
+        # cold start -> fallback
+        candidate = fallback_recommendation(rest_meta, location, preferences, top_n)
+        return candidate
+
+def fallback_recommendation(rest_meta: pd.DataFrame, location=None, preferences=None, top_n=10):
+    """
+    Returns top restaurants by metadata rating, filtered by location and preferences.
+    """
+    meta = rest_meta.copy()
+    if location:
+        meta = meta[meta['location'].astype(str).str.lower() == str(location).lower()]
+    if preferences:
+        pref_list = preferences if isinstance(preferences, list) else [p.strip().lower() for p in str(preferences).split(',') if p.strip()]
+        if pref_list:
+            meta = meta[meta['cuisine'].astype(str).str.lower().apply(
+                lambda x: any(p in x for p in pref_list) if isinstance(x, str) else False
+            ) | meta.get('tags', pd.Series([])).astype(str).str.lower().apply(
+                lambda x: any(p in x for p in pref_list) if isinstance(x, str) else False
+            )]
+    # sort by rating if available, else random
+    if 'rating' in meta.columns and not meta['rating'].isna().all():
+        meta_sorted = meta.sort_values('rating', ascending=False)
+    else:
+        meta_sorted = meta.sample(frac=1.0, random_state=42)  # random shuffle
+    return meta_sorted.head(top_n).reset_index(drop=True)
+
+def get_similar_restaurants(restaurant_id: str, similarity, rest_meta: pd.DataFrame, top_n=6):
+    """
+    Return top-n similar restaurants to restaurant_id using similarity matrix.
+    """
+    if similarity is None:
         return pd.DataFrame()
-    sim_scores = similarity_df.loc[rest_name].sort_values(ascending=False).iloc[1:top_n+1]
-    sim_scores = sim_scores.reset_index()
-    sim_scores.columns = ['Restaurant Name', 'Similarity']
-    sim_scores['Similarity %'] = (sim_scores['Similarity'] * 100).round(1)
-    return rest_metadata[rest_metadata['Restaurant Name'].isin(sim_scores['Restaurant Name'])].merge(sim_scores, on='Restaurant Name')
+    if isinstance(similarity, pd.DataFrame):
+        rid = str(restaurant_id)
+        if rid not in similarity.index.astype(str).tolist():
+            return pd.DataFrame()
+        sim_series = pd.Series(similarity.loc[rid].values, index=similarity.columns.astype(str))
+        sim_series = sim_series.sort_values(ascending=False)
+        sim_series = sim_series[sim_series.index != rid]  # exclude itself
+        top_ids = sim_series.head(top_n).index.astype(str).tolist()
+        meta = rest_meta.copy()
+        meta['restaurant_id'] = meta['restaurant_id'].astype(str)
+        result = meta[meta['restaurant_id'].isin(top_ids)]
+        # preserve order of top_ids
+        result = pd.DataFrame({ 'restaurant_id': top_ids }).merge(result, on='restaurant_id', how='left')
+        return result
+    else:
+        return pd.DataFrame()
 
-def page_main():
-    st.markdown('<div class="title">Find Restaurants</div>', unsafe_allow_html=True)
-    uid = st.session_state.user_id
-    all_locations = sorted(rest_metadata['Location'].unique().tolist())
-    last_loc = get_preference(uid, 'last_location')
-    default_loc = last_loc if last_loc and last_loc in all_locations else all_locations[0]
+# -----------------------------
+# DB user functions
+# -----------------------------
+def get_user(username: str):
+    engine = get_db_connection()
+    with engine.connect() as conn:
+        res = conn.execute(text("SELECT username, email, location, preferences FROM users WHERE username = :u"), {"u": username}).fetchone()
+    engine.dispose()
+    return res
 
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        location = st.selectbox("Select your area:", options=all_locations, index=all_locations.index(default_loc))
-    with col2:
-        cuisine = st.selectbox("Cuisine?", options=["Any"] + sorted(rest_metadata['Cuisine Type'].unique().tolist()))
-
-    if st.button("Search Restaurants", use_container_width=True):
-        increment_search_count(uid)
-        set_preference(uid, last_location=location, pref_cuisine=cuisine if cuisine != "Any" else None)
-        cuisine_filter = cuisine if cuisine != "Any" else None
-        recs = recommend_by_location(location, cuisine_filter)
-
-        if recs.empty:
-            st.warning(f"No restaurants found in **{location}**")
-        else:
-            st.success(f"Found {len(recs)} restaurant(s) in **{location}**")
-            # Track open expanders
-            if 'open_expanders' not in st.session_state:
-                st.session_state.open_expanders = set()
-
-            for _, row in recs.iterrows():
-                rest_name = row['Restaurant Name']
-                price_range = row.get('Price Range', '').strip()
-                current_rating = get_user_rating(uid, rest_name)
-                is_fav = is_favorite(uid, rest_name)
-
-                # Unique key for expander
-                expander_key = f"exp_{rest_name}"
-                is_open = expander_key in st.session_state.open_expanders
-
-                with st.expander(f"**{rest_name}**", expanded=is_open):
-                    # Toggle open state
-                    if not is_open:
-                        st.session_state.open_expanders.add(expander_key)
-
-                    col_a, col_b = st.columns([4, 1])
-                    with col_a:
-                        price_display = f"<strong>Price Range:</strong> {price_range} | " if price_range else ""
-                        st.markdown(f"""
-                        <p style="margin:0;"><span class="tag">{row['Cuisine Type']}</span> <span class="tag">{row['Location']}</span></p>
-                        <p style="margin:0.5rem 0 0 0;">{price_display}<strong>Rating:</strong> {row.get('rating', 'N/A')}/5</p>
-                        """, unsafe_allow_html=True)
-
-                        # RATING (NO RERUN)
-                        rating_key = f"rate_{rest_name}"
-                        new_rating = st.radio(
-                            "Rate this restaurant:", 
-                            options=[0,1,2,3,4,5], 
-                            index=current_rating,
-                            horizontal=True,
-                            key=rating_key
-                        )
-                        if new_rating != current_rating:
-                            set_user_rating(uid, rest_name, new_rating)
-                            log_interaction(uid, rest_name, f"rated {new_rating}")
-                            st.success(f"Rated {new_rating} stars!", icon="star")
-
-                    with col_b:
-                        heart_icon = "heart-filled" if is_fav else "heart-empty"
-                        if st.button(heart_icon, key=f"fav_{rest_name}", use_container_width=True):
-                            toggle_favorite(uid, rest_name)
-                            log_interaction(uid, rest_name, "favorited")
-                            st.success("Saved to favorites!", icon="heart-filled")
-
-                    # SIMILAR
-                    sim_recs = get_similar_restaurants_with_score(rest_name, top_n=2)
-                    if not sim_recs.empty:
-                        st.markdown("**You might also like:**")
-                        for _, sim in sim_recs.iterrows():
-                            sim_price = sim.get('Price Range', '').strip()
-                            sim_pct = sim.get('Similarity %', 0)
-                            sim_price_display = f" • {sim_price}" if sim_price else ""
-                            st.markdown(f"""
-                            <div class="similar-card">
-                                <strong>{sim['Restaurant Name']}</strong> 
-                                <span class="similarity-badge">{sim_pct}% similar</span><br>
-                                <small>{sim['Cuisine Type']} • {sim['Location']}{sim_price_display}</small>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-def page_dashboard():
-    st.markdown('<div class="title">Your Dashboard</div>', unsafe_allow_html=True)
-    uid = st.session_state.user_id
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.subheader("Profile")
-        cur.execute("SELECT username, email, created_at FROM users WHERE id=?", (uid,))
-        user = cur.fetchone()
-        st.write(f"**Name:** {user[0]}")
-        st.write(f"**Email:** {user[1]}")
-        st.write(f"**Member Since:** {user[2][:10]}")
-        st.subheader("Favorites")
-        cur.execute("SELECT restaurant FROM favorites WHERE user_id=?", (uid,))
-        favs = cur.fetchall()
-        if favs:
-            for (r,) in favs:
-                if st.button(r, key=f"fav_dash_{r}", use_container_width=True):
-                    st.session_state.open_expanders = {f"exp_{r}"}
-                    st.rerun()
-        else:
-            st.info("No favorites yet.")
-        st.subheader("Your Ratings")
-        cur.execute("SELECT restaurant, rating FROM ratings WHERE user_id=? ORDER BY rating DESC", (uid,))
-        ratings = cur.fetchall()
-        if ratings:
-            for r, rating in ratings:
-                stars = "star" * rating
-                st.write(f"**{r}** → {stars} ({rating}/5)")
-        else:
-            st.info("No ratings yet.")
-    with col2:
-        st.subheader("Recent Activity")
-        cur.execute("SELECT restaurant, action, timestamp FROM interactions WHERE user_id=? ORDER BY timestamp DESC LIMIT 10", (uid,))
-        logs = cur.fetchall()
-        if logs:
-            log_df = pd.DataFrame(logs, columns=["Restaurant", "Action", "Time"])
-            log_df['Time'] = pd.to_datetime(log_df['Time']).dt.strftime('%b %d, %H:%M')
-            st.dataframe(log_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No activity yet.")
-
-def sidebar_profile():
-    with st.sidebar:
-        st.image("https://upload.wikimedia.org/wikipedia/commons/5/5e/Nilai_University_Logo.png", width=100)
-        st.markdown(f"### Hi, **{st.session_state.username}**")
-        st.markdown("---")
-        if st.button("Home", use_container_width=True):
-            st.session_state.open_expanders = set()
-            st.rerun()
-        if st.button("Logout", use_container_width=True):
-            for k in list(st.session_state.keys()): del st.session_state[k]
-            st.rerun()
-        st.markdown("---")
-        uid = st.session_state.user_id
-        search_count = get_preference(uid, 'search_count') or 0
-        last_loc = get_preference(uid, 'last_location') or "Not set"
-        pref_cuisine = get_preference(uid, 'pref_cuisine') or "Not set"
-        st.write(f"**Searches:** `{search_count}`")
-        st.write(f"**Last Area:** `{last_loc}`")
-        st.write(f"**Pref Cuisine:** `{pref_cuisine}`")
-
-# ========================================
-# RECOMMEND
-# ========================================
-def recommend_by_location(location, cuisine=None, top_n=5):
-    loc_clean = location.lower().strip()
-    mask = rest_metadata['Location'].str.lower().str.contains(loc_clean, na=False)
-    candidates = rest_metadata[mask]
-    if cuisine and cuisine != "Any":
-        candidates = candidates[candidates['Cuisine Type'].str.contains(cuisine, case=False, na=False)]
-    if candidates.empty: return pd.DataFrame()
-    scores = candidates['Cuisine Type'].apply(lambda x: 2.0 if cuisine and cuisine.lower() in x.lower() else 1.0)
-    candidates = candidates.copy()
-    candidates['Score'] = scores
-    return candidates.sort_values('Score', ascending=False).head(top_n)
-
-# ========================================
-# AUTH
-# ========================================
-def hash_pw(pw): return hashlib.sha256(pw.encode()).hexdigest()
-def register(u, p, e): 
+def create_user(username: str, email: str, password: str):
+    password_hash = hash_password(password)
+    engine = get_db_connection()
     try:
-        u = u.strip()
-        if not u or not p or not e: return False
-        cur.execute("SELECT id FROM users WHERE username=?", (u,))
-        if cur.fetchone(): return False
-        cur.execute("INSERT INTO users (username, password_hash, email) VALUES (?, ?, ?)", (u, hash_pw(p), e))
-        conn.commit()
-        return True
-    except: return False
-def login(u, p):
-    try:
-        cur.execute("SELECT id FROM users WHERE username=? AND password_hash=?", (u, hash_pw(p)))
-        row = cur.fetchone()
-        return row[0] if row else None
-    except: return None
+        with engine.connect() as conn:
+            conn.execute(text("INSERT INTO users (username, email, password_hash) VALUES (:u, :e, :p)"),
+                         {"u": username, "e": email, "p": password_hash})
+        engine.dispose()
+        return True, "User created"
+    except Exception as e:
+        engine.dispose()
+        return False, str(e)
 
-# ========================================
-# MAIN ROUTING
-# ========================================
-if 'user_id' not in st.session_state:
-    page_auth()
-else:
-    sidebar_profile()
-    tab1, tab2 = st.tabs(["Search", "Dashboard"])
-    with tab1: page_main()
-    with tab2: page_dashboard()
+def verify_user(username: str, password: str):
+    password_hash = hash_password(password)
+    engine = get_db_connection()
+    with engine.connect() as conn:
+        row = conn.execute(text("SELECT username FROM users WHERE username = :u AND password_hash = :p"), {"u": username, "p": password_hash}).fetchone()
+    engine.dispose()
+    return row is not None
+
+def update_user_location(username: str, location: str):
+    engine = get_db_connection()
+    with engine.connect() as conn:
+        conn.execute(text("UPDATE users SET location = :loc WHERE username = :u"), {"loc": location, "u": username})
+    engine.dispose()
+
+def update_user_preferences(username: str, preferences: str):
+    engine = get_db_connection()
+    with engine.connect() as conn:
+        conn.execute(text("UPDATE users SET preferences = :prefs WHERE username = :u"), {"prefs": preferences, "u": username})
+    engine.dispose()
+
+def save_user_rating(username: str, restaurant_id: str, rating: int, review: str = ""):
+    engine = get_db_connection()
+    with engine.connect() as conn:
+        conn.execute(text("INSERT INTO ratings (username, restaurant_id, rating, review) VALUES (:u, :rid, :r, :rev)"),
+                     {"u": username, "rid": str(restaurant_id), "r": int(rating), "rev": review})
+    engine.dispose()
+
+# -----------------------------
+# Streamlit UI
+# -----------------------------
+def main():
+    st.set_page_config(page_title="Kathmandu Restaurant Recommender", layout="wide")
+    init_db()
+
+    # Load model/data (cached)
+    rest_meta = load_restaurant_metadata()
+    sim = load_similarity_matrix()
+    ratings_df = load_rating_matrix()
+
+    # --- Sidebar: Authentication + navigation ---
+    if 'logged_in' not in st.session_state:
+        st.session_state['logged_in'] = False
+
+    if not st.session_state['logged_in']:
+        st.sidebar.title("Welcome")
+        choice = st.sidebar.selectbox("Menu", ["Login", "Sign up", "Continue as Guest"])
+        if choice == "Login":
+            st.sidebar.subheader("Login")
+            username = st.sidebar.text_input("Username")
+            password = st.sidebar.text_input("Password", type="password")
+            if st.sidebar.button("Login"):
+                if verify_user(username, password):
+                    st.session_state['logged_in'] = True
+                    st.session_state['username'] = username
+                    # load user details
+                    user_row = get_user(username)
+                    if user_row:
+                        st.session_state['location'] = user_row['location']
+                        st.session_state['preferences'] = user_row['preferences']
+                    st.success(f"Logged in as {username}")
+                    st.experimental_rerun()
+                else:
+                    st.error("Invalid username or password")
+        elif choice == "Sign up":
+            st.sidebar.subheader("Create an account")
+            new_username = st.sidebar.text_input("Choose a username", key="signup_user")
+            email = st.sidebar.text_input("Email", key="signup_email")
+            new_password = st.sidebar.text_input("Choose a password", type="password", key="signup_pass")
+            if st.sidebar.button("Create account"):
+                ok, msg = create_user(new_username, email, new_password)
+                if ok:
+                    st.success("Account created. You can now login.")
+                else:
+                    st.error(f"Could not create account: {msg}")
+        else:
+            # guest
+            st.sidebar.write("Continue without signing in.")
+            if st.sidebar.button("Proceed as Guest"):
+                st.session_state['logged_in'] = True
+                st.session_state['username'] = "guest"
+                st.session_state['location'] = None
+                st.session_state['preferences'] = None
+                st.experimental_rerun()
+        # show a brief landing
+        st.title("🍽 Kathmandu Restaurant Recommender")
+        st.markdown("Login or sign up to get personalized recommendations. Or continue as Guest.")
+        st.write("---")
+        st.subheader("About")
+        st.write("This demo uses an item-based collaborative filtering model with precomputed item similarity. Set your location, save preferences, and get recommendations tailored for Kathmandu.")
+        return  # do not continue into main app until logged in
+
+    # When logged in:
+    username = st.session_state.get('username', 'guest')
+    st.sidebar.title(f"Hi, {username}")
+    page = st.sidebar.radio("Navigate", ["Home", "Set My Location", "Explore", "Preferences", "My Reviews", "Admin (hidden)"])
+    if st.sidebar.button("Logout"):
+        st.session_state.clear()
+        st.experimental_rerun()
+
+    # --- Pages ---
+    if page == "Home":
+        st.title("Home — Recommendations")
+        st.subheader(f"Welcome, {username}!")
+        user_location = st.session_state.get('location', None)
+        if user_location:
+            st.info(f"Showing recommendations for location: **{user_location}**")
+        else:
+            st.warning("Please set your location via 'Set My Location' for nearby recommendations.")
+
+        # Use preferences from session or DB
+        prefs = st.session_state.get('preferences', None)
+        # show a small preferences summary
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            st.write("Your location:")
+            st.write(user_location if user_location else "— not set —")
+            st.write("Your preferences:")
+            st.write(prefs if prefs else "— not set —")
+        with col2:
+            # call recommendation engine
+            recs = recommend_for_user(username=username,
+                                      ratings_df=ratings_df,
+                                      rest_meta=rest_meta,
+                                      similarity=sim,
+                                      top_n=10,
+                                      location=user_location,
+                                      preferences=prefs)
+            if recs is None or recs.empty:
+                st.write("No recommendations available. Try updating preferences or adding some ratings in 'My Reviews'.")
+            else:
+                for idx, row in recs.iterrows():
+                    st.markdown(f"### {row.get('name', row.get('restaurant_id'))}")
+                    st.text(f"Cuisine: {row.get('cuisine', 'N/A')} | Location: {row.get('location', 'N/A')} | Price: {row.get('price', 'N/A')}")
+                    if 'rating' in row and not pd.isna(row['rating']):
+                        st.text(f"Rating: ⭐ {row['rating']}")
+                    # show similar restaurants button
+                    rest_id = str(row.get('restaurant_id'))
+                    if st.button(f"Show similar to {row.get('name', '')}", key=f"sim_{idx}"):
+                        with st.expander("Similar restaurants"):
+                            similar = get_similar_restaurants(rest_id, sim, rest_meta, top_n=6)
+                            if similar.empty:
+                                st.write("No similar restaurants found.")
+                            else:
+                                for _, s in similar.iterrows():
+                                    st.write(f"- {s.get('name','')} ({s.get('cuisine','')}) — {s.get('location','')}")
+                    st.markdown("---")
+
+    elif page == "Set My Location":
+        st.title("Set My Location")
+        st.write("Select your current area (manual input). This will be saved to your profile.")
+        # unique sorted locations from metadata
+        all_locations = sorted(rest_meta['location'].dropna().unique().astype(str).tolist())
+        if not all_locations:
+            st.error("No location data available in restaurant metadata.")
+        else:
+            loc = st.selectbox("Select an area", [""] + all_locations)
+            if st.button("Save Location"):
+                if username != "guest":
+                    update_user_location(username, loc)
+                st.session_state['location'] = loc
+                st.success(f"Location set to {loc}")
+    elif page == "Explore":
+        st.title("Explore Restaurants")
+        st.write("Search and filter restaurants.")
+        search = st.text_input("Search by name or cuisine")
+        cuisine_filter = st.multiselect("Cuisine", sorted(rest_meta['cuisine'].dropna().unique().astype(str).tolist()))
+        location_filter = st.selectbox("Area (optional)", ["Any"] + sorted(rest_meta['location'].dropna().unique().astype(str).tolist()))
+        price_options = []
+        if 'price' in rest_meta.columns:
+            price_options = sorted(rest_meta['price'].dropna().unique().astype(str).tolist())
+        price_filter = st.selectbox("Price (optional)", ["Any"] + price_options) if price_options else "Any"
+
+        df = rest_meta.copy()
+        if search:
+            mask = df['name'].astype(str).str.contains(search, case=False, na=False) | df['cuisine'].astype(str).str.contains(search, case=False, na=False)
+            df = df[mask]
+        if cuisine_filter:
+            df = df[df['cuisine'].isin(cuisine_filter)]
+        if location_filter and location_filter != "Any":
+            df = df[df['location'] == location_filter]
+        if price_filter and price_filter != "Any":
+            df = df[df['price'].astype(str) == price_filter]
+
+        st.write(f"Found {len(df)} restaurants")
+        for _, r in df.head(200).iterrows():  # limit to 200 rows for speed
+            st.markdown(f"**{r.get('name','')}** — {r.get('cuisine','')} — {r.get('location','')}")
+            st.text(f"Price: {r.get('price','N/A')} | Rating: {r.get('rating','N/A')}")
+            if st.button(f"See similar to {r.get('name','')}", key=f"explore_sim_{r.get('restaurant_id')}"):
+                simdf = get_similar_restaurants(str(r.get('restaurant_id')), sim, rest_meta, top_n=6)
+                if simdf.empty:
+                    st.write("No similar restaurants.")
+                else:
+                    for _, s in simdf.iterrows():
+                        st.write(f"- {s.get('name','')} ({s.get('location','')})")
+            st.markdown("---")
+
+    elif page == "Preferences":
+        st.title("My Preferences")
+        st.write("Set your favorite cuisines and budget to improve recommendations.")
+        cuisine_list = sorted(rest_meta['cuisine'].dropna().unique().astype(str).tolist())
+        chosen = st.multiselect("Favorite cuisines", cuisine_list, default=st.session_state.get('preferences', None))
+        budget = st.selectbox("Preferred budget", ["Any", "Low", "Medium", "High"])
+        if st.button("Save Preferences"):
+            prefs_str = ",".join(chosen) + (f";budget={budget}" if budget and budget != "Any" else "")
+            if username != "guest":
+                update_user_preferences(username, prefs_str)
+            st.session_state['preferences'] = prefs_str
+            st.success("Preferences saved.")
+
+    elif page == "My Reviews":
+        st.title("My Reviews & Ratings")
+        st.write("Submit a rating & short review for a restaurant.")
+        # restaurant selection
+        choices = rest_meta[['restaurant_id', 'name']].drop_duplicates().to_dict('records')
+        id_to_name = {str(r['restaurant_id']): r['name'] for r in choices}
+        select_id = st.selectbox("Select restaurant", [""] + list(id_to_name.keys()), format_func=lambda x: id_to_name.get(str(x), "") if x else "")
+        rating = st.slider("Rating (1-5)", 1, 5, 4)
+        review = st.text_area("Short review (optional)")
+        if st.button("Submit Review"):
+            if not select_id:
+                st.error("Please choose a restaurant.")
+            else:
+                save_user_rating(username, select_id, rating, review)
+                st.success("Thank you — your review has been saved.")
+    else:
+        # Admin (hidden) - simple stats
+        st.title("Admin Dashboard (basic)")
+        engine = get_db_connection()
+        with engine.connect() as conn:
+            user_count = conn.execute(text("SELECT COUNT(*) FROM users")).scalar()
+            rating_count = conn.execute(text("SELECT COUNT(*) FROM ratings")).scalar()
+        st.write(f"Users: {user_count}  |  Ratings stored: {rating_count}")
+        st.write("Top cuisines in metadata:")
+        st.write(rest_meta['cuisine'].value_counts().head(10))
+
+if __name__ == "__main__":
+    main()
