@@ -1,6 +1,6 @@
 """
 FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender — Enhanced Rating & Reviews UI
+Restaurant Recommender — Stable Enhanced Version
 """
 
 import streamlit as st
@@ -254,45 +254,50 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# RESTAURANT CARD (⭐ ENHANCED)
+# RESTAURANT CARD (⭐ FIXED)
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
-        st.markdown(f"### {row['name']}")
+        st.markdown(f"### {row.get('name', 'Unknown Restaurant')}")
         st.caption(f"{row.get('cuisine','')} • {row.get('location','')} • {row.get('price','N/A')}")
 
-        if pd.notna(row.get("rating", "")):
-            rv = float(row["rating"])
-            stars = "⭐" * int(round(rv))
-            st.markdown(f"{stars} **{rv:.1f}**")
+        rating_val = row.get("rating", None)
+        if rating_val not in [None, ""]:
+            try:
+                rv = float(rating_val)
+                stars = "⭐" * int(round(rv))
+                st.markdown(f"{stars} **{rv:.1f}**")
+            except:
+                st.caption("Rating: N/A")
+        else:
+            st.caption("Rating: N/A")
 
         if row.get("tags"):
             tags = " ".join([f"`{t.strip()}`" for t in row["tags"].split(",") if t.strip()])
             st.markdown(tags)
 
         with st.expander("Rate & Reviews"):
-            # Rating input — star slider
             st.markdown("#### ⭐ Rate this restaurant")
             rating = st.slider(
-                "Select rating", 
+                "Select rating",
                 min_value=1, max_value=5, step=1, value=5,
-                key=f"rating_slider_{key_prefix}_{row['restaurant_id']}"
+                key=f"rating_slider_{key_prefix}_{row.get('restaurant_id', '')}"
             )
             review = st.text_area(
-                "Write your review (optional)", 
-                key=f"review_text_{key_prefix}_{row['restaurant_id']}", 
+                "Write your review (optional)",
+                key=f"review_text_{key_prefix}_{row.get('restaurant_id', '')}",
                 height=80
             )
 
             col1, col2 = st.columns([1, 1])
             with col1:
-                if st.button("Submit Review", key=f"submit_{key_prefix}_{row['restaurant_id']}"):
-                    save_user_rating(st.session_state.username, row['restaurant_id'], rating, review)
+                if st.button("Submit Review", key=f"submit_{key_prefix}_{row.get('restaurant_id', '')}"):
+                    save_user_rating(st.session_state.username, row.get('restaurant_id', ''), rating, review)
                     st.success("✅ Review submitted successfully!")
 
             with col2:
-                if st.button("Show Reviews", key=f"show_{key_prefix}_{row['restaurant_id']}"):
-                    reviews_df = get_reviews(row['restaurant_id'])
+                if st.button("Show Reviews", key=f"show_{key_prefix}_{row.get('restaurant_id', '')}"):
+                    reviews_df = get_reviews(row.get('restaurant_id', ''))
                     if reviews_df.empty:
                         st.info("No reviews yet for this restaurant.")
                     else:
@@ -374,6 +379,7 @@ def main():
             st.session_state.clear()
             st.rerun()
 
+    # PAGES
     if page == "Home":
         st.header("Recommended for You")
         recs = recommend_user(st.session_state.username, meta, similarity, st.session_state.location, st.session_state.preferences)
