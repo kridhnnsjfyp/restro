@@ -1,6 +1,7 @@
 # restro/app.py
 """
 Streamlit Restaurant Recommender App
+------------------------------------
 Run this using:
     streamlit run app.py
 """
@@ -11,11 +12,10 @@ import numpy as np
 import sqlite3
 import hashlib
 import pickle
-from sqlalchemy import create_engine, text
 from pathlib import Path
 
 # -----------------------------
-# PATH SETUP
+# PATHS AND FILES
 # -----------------------------
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "restaurant_recommender.db"
@@ -26,16 +26,13 @@ RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 RATING_MATRIX_CSV = MODEL_DIR / "rating_matrix.csv"
 
 # -----------------------------
-# DATABASE SETUP
+# DATABASE INIT
 # -----------------------------
-def get_db_connection():
-    return create_engine(f"sqlite:///{DB_PATH}")
-
 def init_db():
-    """Create tables if they don't exist."""
-    engine = get_db_connection()
-    with engine.connect() as conn:
-        conn.execute(text("""
+    """Initialize tables if not exist."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE,
@@ -44,8 +41,8 @@ def init_db():
             location TEXT,
             preferences TEXT
         );
-        """))
-        conn.execute(text("""
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS ratings (
             rating_id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT,
@@ -54,8 +51,9 @@ def init_db():
             review TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
-        """))
-    engine.dispose()
+    """)
+    conn.commit()
+    conn.close()
 
 # -----------------------------
 # PASSWORD HASHING
@@ -64,7 +62,80 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 # -----------------------------
-# DATA LOADING
+# USER DATABASE FUNCTIONS
+# -----------------------------
+def get_user(username):
+    """Fetch user details from SQLite DB."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT username, email, location, preferences FROM users WHERE username = ?", (username,))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def create_user(username, email, password):
+    """Create user if username is unique."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+
+        # Check if username already exists
+        cur.execute("SELECT username FROM users WHERE username = ?", (username,))
+        if cur.fetchone():
+            conn.close()
+            return False, "Username already taken. Please choose another."
+
+        password_hash = hash_password(password)
+        cur.execute("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+                    (username, email, password_hash))
+        conn.commit()
+        conn.close()
+        return True, "User created successfully!"
+    except sqlite3.IntegrityError:
+        return False, "Username already exists."
+    except Exception as e:
+        return False, f"Database error: {str(e)}"
+
+def verify_user(username, password):
+    """Check if username/password match."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+    result = cur.fetchone()
+    conn.close()
+
+    if not result:
+        return False
+    stored_hash = result[0]
+    return stored_hash == hash_password(password)
+
+def update_user_location(username, location):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET location = ? WHERE username = ?", (location, username))
+    conn.commit()
+    conn.close()
+
+def update_user_preferences(username, prefs):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET preferences = ? WHERE username = ?", (prefs, username))
+    conn.commit()
+    conn.close()
+
+def save_user_rating(username, restaurant_id, rating, review):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO ratings (username, restaurant_id, rating, review) VALUES (?, ?, ?, ?)",
+        (username, restaurant_id, rating, review)
+    )
+    conn.commit()
+    conn.close()
+
+# -----------------------------
+# LOAD DATASETS
 # -----------------------------
 @st.cache_data(show_spinner=False)
 def load_restaurant_metadata():
@@ -89,72 +160,7 @@ def load_rating_matrix():
     return pd.read_csv(RATING_MATRIX_CSV, index_col=0)
 
 # -----------------------------
-# USER DATABASE FUNCTIONS
-# -----------------------------
-def get_user(username):
-    engine = get_db_connection()
-    with engine.connect() as conn:
-        user = conn.execute(text(
-            "SELECT username, email, location, preferences FROM users WHERE username = :u"
-        ), {"u": username}).fetchone()
-    engine.dispose()
-    return user
-
-def create_user(username, email, password):
-    """Create a new user if username is unique."""
-    engine = get_db_connection()
-    with engine.connect() as conn:
-        existing = conn.execute(text("SELECT username FROM users WHERE username = :u"), {"u": username}).fetchone()
-        if existing:
-            engine.dispose()
-            return False, "Username already taken. Please choose another."
-
-        try:
-            conn.execute(text("""
-                INSERT INTO users (username, email, password_hash)
-                VALUES (:u, :e, :p)
-            """), {"u": username, "e": email, "p": hash_password(password)})
-            engine.dispose()
-            return True, "User created successfully!"
-        except Exception as e:
-            engine.dispose()
-            return False, f"Database error: {str(e)}"
-
-def verify_user(username, password):
-    """Verify user credentials."""
-    engine = get_db_connection()
-    with engine.connect() as conn:
-        user = conn.execute(text("SELECT password_hash FROM users WHERE username = :u"), {"u": username}).fetchone()
-    engine.dispose()
-
-    if not user:
-        return False
-    stored_hash = user[0]
-    return stored_hash == hash_password(password)
-
-def update_user_location(username, location):
-    engine = get_db_connection()
-    with engine.connect() as conn:
-        conn.execute(text("UPDATE users SET location=:l WHERE username=:u"), {"l": location, "u": username})
-    engine.dispose()
-
-def update_user_preferences(username, prefs):
-    engine = get_db_connection()
-    with engine.connect() as conn:
-        conn.execute(text("UPDATE users SET preferences=:p WHERE username=:u"), {"p": prefs, "u": username})
-    engine.dispose()
-
-def save_user_rating(username, restaurant_id, rating, review):
-    engine = get_db_connection()
-    with engine.connect() as conn:
-        conn.execute(text("""
-            INSERT INTO ratings (username, restaurant_id, rating, review)
-            VALUES (:u, :r, :ra, :rev)
-        """), {"u": username, "r": restaurant_id, "ra": rating, "rev": review})
-    engine.dispose()
-
-# -----------------------------
-# RECOMMENDATION FUNCTION
+# RECOMMENDATION LOGIC
 # -----------------------------
 def recommend_for_user(username, ratings_df, rest_meta, similarity, location=None, prefs=None, top_n=10):
     df = rest_meta.copy()
@@ -166,7 +172,7 @@ def recommend_for_user(username, ratings_df, rest_meta, similarity, location=Non
     return df.sort_values("rating", ascending=False).head(top_n)
 
 # -----------------------------
-# STREAMLIT APP START
+# MAIN STREAMLIT APP
 # -----------------------------
 def main():
     st.set_page_config(page_title="Kathmandu Restaurant Recommender", layout="wide")
@@ -179,9 +185,7 @@ def main():
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
 
-    # --------------------------------
-    # LOGIN / SIGNUP CENTERED FORM
-    # --------------------------------
+    # ---------------- LOGIN / SIGNUP PAGE ----------------
     if not st.session_state["logged_in"]:
         st.markdown("<h1 style='text-align:center;'>🍽 Kathmandu Restaurant Recommender</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align:center; font-size:18px;'>Get personalized restaurant recommendations in Kathmandu.</p>", unsafe_allow_html=True)
@@ -237,9 +241,7 @@ def main():
         st.markdown("<p style='text-align:center; color:gray;'>Developed as part of Final Year Project — AI-based Restaurant Recommender System</p>", unsafe_allow_html=True)
         return
 
-    # --------------------------------
-    # LOGGED IN SECTION
-    # --------------------------------
+    # ---------------- LOGGED-IN AREA ----------------
     username = st.session_state.get("username", "guest")
     st.sidebar.title(f"Hi, {username}")
     page = st.sidebar.radio("Navigate", ["Home", "Set My Location", "Explore", "Preferences", "My Reviews", "Logout"])
@@ -307,6 +309,8 @@ def main():
             save_user_rating(username, rid, rating, review)
             st.success("Review saved. Thank you for your feedback!")
 
-# Run the app
+# -----------------------------
+# RUN APP
+# -----------------------------
 if __name__ == "__main__":
     main()
