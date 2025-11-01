@@ -1,19 +1,7 @@
 """
-Streamlit Restaurant Recommender - FINAL ROBUST VERSION
-Krish Chakradhar – 00020758 – EC3319 FYP
-Nilai University – Subarna Sapkota
-
-Features:
-- Full login/signup/logout
-- Guest mode
-- DB-safe operations
-- Real recommendations
-- Clean grid UI
-- Pagination
-- Ratings & Reviews
-- Preferences
-- Similarity
-- NO ERRORS
+FINAL ROBUST VERSION — NO KEYERROR
+Handles missing 'tags', 'price', 'rating' columns
+Krish Chakradhar – 00020758 – EC3319
 """
 
 import streamlit as st
@@ -26,7 +14,7 @@ import math
 from pathlib import Path
 
 # ---------------------------
-# CONFIG & PATHS
+# CONFIG
 # ---------------------------
 st.set_page_config(page_title="Kathmandu Restaurant Recommender", layout="wide")
 
@@ -90,22 +78,39 @@ def load_metadata():
     if df.empty:
         df = pd.DataFrame([{
             "restaurant_id": "r1", "name": "Sample Cafe", "cuisine": "Multi-Cuisine",
-            "location": "Thamel", "rating": 4.0, "price": "Medium", "tags": "cozy"
+            "location": "Thamel", "rating": 4.0, "price": "Medium"
         }])
     else:
-        df = df.rename(columns={
-            "Restaurant Name": "name",
-            "Cuisine Type": "cuisine",
-            "Location": "location",
-            "rating": "rating",
-            "price": "price",
-            "tags": "tags"
-        })
+        # RENAME COMMON COLUMNS
+        rename_map = {
+            "Restaurant Name": "name", "name": "name",
+            "Cuisine Type": "cuisine", "cuisine": "cuisine",
+            "Location": "location", "location": "location",
+            "rating": "rating", "Rating": "rating",
+            "price": "price", "Price Range": "price"
+        }
+        df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+        
+        # ENSURE REQUIRED COLUMNS
         if "restaurant_id" not in df.columns:
             df["restaurant_id"] = df.index.astype(str)
+        if "name" not in df.columns:
+            df["name"] = "Restaurant " + df["restaurant_id"]
+        if "cuisine" not in df.columns:
+            df["cuisine"] = "Various"
+        if "location" not in df.columns:
+            df["location"] = "Kathmandu"
+        if "rating" not in df.columns:
+            df["rating"] = np.nan
+        if "price" not in df.columns:
+            df["price"] = "Medium"
+        # ADD TAGS IF MISSING
+        if "tags" not in df.columns:
+            df["tags"] = ""
+
     df = df.fillna("")
     df["restaurant_id"] = df["restaurant_id"].astype(str)
-    return df
+    return df.reset_index(drop=True)
 
 @st.cache_data
 def load_similarity():
@@ -114,13 +119,9 @@ def load_similarity():
     try:
         with open(SIMILARITY_PKL, 'rb') as f:
             sim = pickle.load(f)
-        if isinstance(sim, np.ndarray):
-            return sim
-        if isinstance(sim, pd.DataFrame):
-            return sim
+        return sim
     except:
-        pass
-    return None
+        return None
 
 # ---------------------------
 # DB OPERATIONS
@@ -152,7 +153,7 @@ def create_user(username, email, password):
         conn.close()
         return True, "Account created."
     except Exception as e:
-        return False, f"DB error: {str(e)}"
+        return False, f"Error: {str(e)}"
 
 def verify_user(username, password):
     try:
@@ -194,8 +195,47 @@ def save_user_rating(username, restaurant_id, rating, review=""):
     except: pass
 
 # ---------------------------
-# RECOMMENDATION
+# RECOMMENDATION — FIXED TAGS ERROR
 # ---------------------------
+def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT restaurant_id, rating FROM ratings WHERE username=?", (username,))
+        rows = cur.fetchall()
+        conn.close()
+    except:
+        rows = []
+
+    rated = {r[0]: r[1] for r in rows} if rows else {}
+    candidates = meta[~meta['restaurant_id'].isin(rated.keys())].copy() if rated else meta.copy()
+
+    # LOCATION FILTER
+    if location and location.strip():
+        candidates = candidates[candidates['location'].astype(str).str.contains(location, case=False, na=False)]
+
+    # PREFERENCES FILTER — SAFE FOR MISSING 'tags'
+    if prefs and prefs.strip():
+        prefs_list = [p.strip().lower() for p in prefs.split(",") if p.strip()]
+        if prefs_list:
+            cuisine_match = candidates['cuisine'].astype(str).str.lower().apply(
+                lambda x: any(p in x for p in prefs_list)
+            )
+            tags_match = pd.Series([False] * len(candidates), index=candidates.index)
+            if 'tags' in candidates.columns:
+                tags_match = candidates['tags'].astype(str).str.lower().apply(
+                    lambda x: any(p in x for p in prefs_list) if x else False
+                )
+            candidates = candidates[cuisine_match | tags_match]
+
+    # SORT
+    if 'rating' in candidates.columns and candidates['rating'].notna().any():
+        candidates = candidates.sort_values('rating', ascending=False)
+    else:
+        candidates = candidates.sort_values('name')
+
+    return candidates.head(top_n).reset_index(drop=True)
+
 def get_similar(restaurant_id, similarity, meta, top_n=6):
     if similarity is None or meta.empty:
         return pd.DataFrame()
@@ -219,43 +259,18 @@ def get_similar(restaurant_id, similarity, meta, top_n=6):
     except:
         return pd.DataFrame()
 
-def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("SELECT restaurant_id, rating FROM ratings WHERE username=?", (username,))
-        rows = cur.fetchall()
-        conn.close()
-    except:
-        rows = []
-
-    rated = {r[0]: r[1] for r in rows} if rows else {}
-    candidates = meta[~meta['restaurant_id'].isin(rated.keys())].copy() if rated else meta.copy()
-
-    if location and location != "Any":
-        candidates = candidates[candidates['location'].str.contains(location, case=False, na=False)]
-    if prefs:
-        prefs = [p.strip().lower() for p in prefs.split(",") if p.strip()]
-        if prefs:
-            mask = candidates['cuisine'].str.lower().apply(lambda x: any(p in x for p in prefs)) | \
-                   candidates['tags'].str.lower().apply(lambda x: any(p in x for p in prefs))
-            candidates = candidates[mask]
-
-    if 'rating' in candidates.columns:
-        candidates = candidates.sort_values('rating', ascending=False)
-    return candidates.head(top_n).reset_index(drop=True)
-
 # ---------------------------
-# UI COMPONENTS
+# UI CARD
 # ---------------------------
 def card(row, key_prefix="", meta=None, similarity=None):
     with st.container():
         st.markdown(f"**{row['name']}**")
         st.write(f"*{row['cuisine']}* — {row['location']} — {row.get('price', 'N/A')}")
-        if pd.notna(row.get('rating')):
+        if 'rating' in row and pd.notna(row['rating']):
             st.write(f"Rating: {row['rating']:.1f}")
-        if row.get('tags'):
-            st.caption(f"Tags: {row['tags']}")
+        tags = row.get('tags', '')
+        if tags:
+            st.caption(f"Tags: {tags}")
 
         with st.expander("Details & Actions"):
             col1, col2 = st.columns(2)
@@ -282,11 +297,9 @@ def main():
     st.title("Kathmandu Restaurant Recommender")
     st.markdown("---")
 
-    # Load data
     meta = load_metadata()
     similarity = load_similarity()
 
-    # Session init
     for key in ["logged_in", "username", "location", "preferences"]:
         if key not in st.session_state:
             st.session_state[key] = False if key == "logged_in" else ("" if key in ["location", "preferences"] else None)
@@ -308,8 +321,8 @@ def main():
                             st.session_state.username = user
                             u = get_user(user)
                             if u:
-                                st.session_state.location = u["location"]
-                                st.session_state.preferences = u["preferences"]
+                                st.session_state.location = u["location"] or ""
+                                st.session_state.preferences = u["preferences"] or ""
                             st.success("Logged in!")
                             st.rerun()
                         else:
@@ -374,7 +387,7 @@ def main():
 
         total = len(df)
         per_page = 12
-        pages = math.ceil(total / per_page)
+        pages = math.ceil(total / per_page) if total > 0 else 1
         page_num = st.number_input("Page", 1, pages, 1)
         start = (page_num - 1) * per_page
         page_df = df.iloc[start:start + per_page]
@@ -388,7 +401,8 @@ def main():
     elif page == "Location":
         st.header("Set Your Location")
         locs = [""] + sorted(meta['location'].unique().tolist())
-        choice = st.selectbox("Choose area", locs, index=locs.index(st.session_state.location) if st.session_state.location in locs else 0)
+        current = st.session_state.location or ""
+        choice = st.selectbox("Choose area", locs, index=locs.index(current) if current in locs else 0)
         if st.button("Save"):
             st.session_state.location = choice
             if st.session_state.username != "guest":
@@ -397,8 +411,9 @@ def main():
 
     elif page == "Preferences":
         st.header("Your Preferences")
-        cuisines = st.multiselect("Favorite cuisines", sorted(meta['cuisine'].unique()),
-                                  default=[c for c in (st.session_state.preferences or "").split(",") if c])
+        current_prefs = st.session_state.preferences or ""
+        default_prefs = [c.strip() for c in current_prefs.split(",") if c.strip()]
+        cuisines = st.multiselect("Favorite cuisines", sorted(meta['cuisine'].unique()), default=default_prefs)
         if st.button("Save"):
             prefs = ",".join(cuisines)
             st.session_state.preferences = prefs
@@ -410,7 +425,7 @@ def main():
         st.header("My Reviews")
         try:
             conn = sqlite3.connect(DB_PATH)
-            df = pd.read_sql("SELECT * FROM ratings WHERE username=?", conn, params=(st.session_state.username,))
+            df = pd.read_sql("SELECT restaurant_id, rating, review FROM ratings WHERE username=?", conn, params=(st.session_state.username,))
             conn.close()
             if df.empty:
                 st.info("No reviews yet.")
