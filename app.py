@@ -1,6 +1,6 @@
 """
-FINAL ROBUST VERSION — NO KEYERROR
-Handles missing 'tags', 'price', 'rating' columns
+FINAL ROBUST VERSION — NO RATING ERROR
+Handles string/float ratings, missing columns
 Krish Chakradhar – 00020758 – EC3319
 """
 
@@ -13,9 +13,6 @@ import pickle
 import math
 from pathlib import Path
 
-# ---------------------------
-# CONFIG
-# ---------------------------
 st.set_page_config(page_title="Kathmandu Restaurant Recommender", layout="wide")
 
 BASE_DIR = Path(__file__).parent
@@ -25,9 +22,6 @@ MODEL_DIR = BASE_DIR / "recommender_model"
 SIMILARITY_PKL = MODEL_DIR / "similarity_matrix.pkl"
 RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 
-# ---------------------------
-# INIT DB
-# ---------------------------
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -56,9 +50,6 @@ def init_db():
 
 init_db()
 
-# ---------------------------
-# UTILS
-# ---------------------------
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
 def safe_read_csv(path):
@@ -69,9 +60,6 @@ def safe_read_csv(path):
     except:
         return pd.DataFrame()
 
-# ---------------------------
-# DATA LOADERS
-# ---------------------------
 @st.cache_data
 def load_metadata():
     df = safe_read_csv(RESTAURANT_META_CSV)
@@ -81,7 +69,6 @@ def load_metadata():
             "location": "Thamel", "rating": 4.0, "price": "Medium"
         }])
     else:
-        # RENAME COMMON COLUMNS
         rename_map = {
             "Restaurant Name": "name", "name": "name",
             "Cuisine Type": "cuisine", "cuisine": "cuisine",
@@ -91,7 +78,6 @@ def load_metadata():
         }
         df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
         
-        # ENSURE REQUIRED COLUMNS
         if "restaurant_id" not in df.columns:
             df["restaurant_id"] = df.index.astype(str)
         if "name" not in df.columns:
@@ -100,13 +86,13 @@ def load_metadata():
             df["cuisine"] = "Various"
         if "location" not in df.columns:
             df["location"] = "Kathmandu"
-        if "rating" not in df.columns:
-            df["rating"] = np.nan
         if "price" not in df.columns:
             df["price"] = "Medium"
-        # ADD TAGS IF MISSING
         if "tags" not in df.columns:
             df["tags"] = ""
+
+        if "rating" in df.columns:
+            df["rating"] = pd.to_numeric(df["rating"], errors='coerce')
 
     df = df.fillna("")
     df["restaurant_id"] = df["restaurant_id"].astype(str)
@@ -123,9 +109,6 @@ def load_similarity():
     except:
         return None
 
-# ---------------------------
-# DB OPERATIONS
-# ---------------------------
 def get_user(username):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -194,9 +177,6 @@ def save_user_rating(username, restaurant_id, rating, review=""):
         conn.close()
     except: pass
 
-# ---------------------------
-# RECOMMENDATION — FIXED TAGS ERROR
-# ---------------------------
 def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -210,11 +190,9 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     rated = {r[0]: r[1] for r in rows} if rows else {}
     candidates = meta[~meta['restaurant_id'].isin(rated.keys())].copy() if rated else meta.copy()
 
-    # LOCATION FILTER
     if location and location.strip():
         candidates = candidates[candidates['location'].astype(str).str.contains(location, case=False, na=False)]
 
-    # PREFERENCES FILTER — SAFE FOR MISSING 'tags'
     if prefs and prefs.strip():
         prefs_list = [p.strip().lower() for p in prefs.split(",") if p.strip()]
         if prefs_list:
@@ -228,9 +206,12 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
                 )
             candidates = candidates[cuisine_match | tags_match]
 
-    # SORT
-    if 'rating' in candidates.columns and candidates['rating'].notna().any():
-        candidates = candidates.sort_values('rating', ascending=False)
+    if 'rating' in candidates.columns:
+        if pd.api.types.is_numeric_dtype(candidates['rating']):
+            candidates = candidates[candidates['rating'].notna()]
+            candidates = candidates.sort_values('rating', ascending=False)
+        else:
+            candidates = candidates.sort_values('name')
     else:
         candidates = candidates.sort_values('name')
 
@@ -259,15 +240,19 @@ def get_similar(restaurant_id, similarity, meta, top_n=6):
     except:
         return pd.DataFrame()
 
-# ---------------------------
-# UI CARD
-# ---------------------------
 def card(row, key_prefix="", meta=None, similarity=None):
     with st.container():
         st.markdown(f"**{row['name']}**")
         st.write(f"*{row['cuisine']}* — {row['location']} — {row.get('price', 'N/A')}")
-        if 'rating' in row and pd.notna(row['rating']):
-            st.write(f"Rating: {row['rating']:.1f}")
+
+        rating_val = row.get('rating')
+        if pd.notna(rating_val) and rating_val != "":
+            try:
+                rating_num = float(rating_val)
+                st.write(f"Rating: {rating_num:.1f}")
+            except (ValueError, TypeError):
+                st.write(f"Rating: {rating_val}")
+
         tags = row.get('tags', '')
         if tags:
             st.caption(f"Tags: {tags}")
@@ -290,9 +275,6 @@ def card(row, key_prefix="", meta=None, similarity=None):
                         for _, s in sims.iterrows():
                             st.write(f"• {s['name']} ({s['cuisine']})")
 
-# ---------------------------
-# MAIN APP
-# ---------------------------
 def main():
     st.title("Kathmandu Restaurant Recommender")
     st.markdown("---")
@@ -304,12 +286,10 @@ def main():
         if key not in st.session_state:
             st.session_state[key] = False if key == "logged_in" else ("" if key in ["location", "preferences"] else None)
 
-    # === AUTH ===
     if not st.session_state.logged_in:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             tab1, tab2, tab3 = st.tabs(["Login", "Sign Up", "Guest"])
-
             with tab1:
                 with st.form("login_form"):
                     user = st.text_input("Username")
@@ -327,7 +307,6 @@ def main():
                             st.rerun()
                         else:
                             st.error("Invalid credentials.")
-
             with tab2:
                 with st.form("signup_form"):
                     new_user = st.text_input("Username")
@@ -340,7 +319,6 @@ def main():
                             st.success(msg + " Please login.")
                         else:
                             st.error(msg)
-
             with tab3:
                 if st.button("Continue as Guest"):
                     st.session_state.logged_in = True
@@ -348,7 +326,6 @@ def main():
                     st.rerun()
         return
 
-    # === SIDEBAR ===
     with st.sidebar:
         st.write(f"**{st.session_state.username}**")
         page = st.radio("Menu", ["Home", "Explore", "Location", "Preferences", "Reviews", "Logout"])
@@ -356,7 +333,6 @@ def main():
             st.session_state.clear()
             st.rerun()
 
-    # === PAGES ===
     if page == "Home":
         st.header("Recommended for You")
         recs = recommend_user(
