@@ -1,6 +1,6 @@
 """
 FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender — FINAL CLEAN VERSION
+Restaurant Recommender — Enhanced Rating & Reviews UI
 """
 
 import streamlit as st
@@ -25,12 +25,12 @@ SIMILARITY_PKL = MODEL_DIR / "similarity_matrix.pkl"
 RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 
 # ============================
-# INIT DB (SAFE)
+# INIT DB
 # ============================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute('''
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
@@ -39,8 +39,8 @@ def init_db():
             location TEXT,
             preferences TEXT
         )
-    ''')
-    cur.execute('''
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS ratings (
             rating_id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
@@ -49,7 +49,7 @@ def init_db():
             review TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
-    ''')
+    """)
     conn.commit()
     conn.close()
 
@@ -70,7 +70,7 @@ def safe_read_csv(path):
         return pd.DataFrame()
 
 # ============================
-# LOAD DATA — SAFE COLUMN DETECTION
+# LOAD DATA
 # ============================
 @st.cache_data
 def load_metadata():
@@ -80,7 +80,7 @@ def load_metadata():
             "restaurant_id": "r1", "name": "Sample Cafe", "cuisine": "Multi-Cuisine",
             "location": "Thamel", "rating": 4.0, "price": "Medium", "tags": ""
         }])
-    
+
     rename_map = {
         "Restaurant Name": "name", "restaurant_name": "name", "name": "name",
         "Cuisine Type": "cuisine", "cuisine": "cuisine",
@@ -121,7 +121,6 @@ def load_similarity():
             sim = pickle.load(f)
         return sim
     except:
-        # Silently ignore load errors
         return None
 
 # ============================
@@ -174,7 +173,7 @@ def update_user_location(username, location):
         cur.execute("UPDATE users SET location=? WHERE username=?", (location, username))
         conn.commit()
         conn.close()
-    except: 
+    except:
         pass
 
 def update_user_preferences(username, prefs):
@@ -184,22 +183,36 @@ def update_user_preferences(username, prefs):
         cur.execute("UPDATE users SET preferences=? WHERE username=?", (prefs, username))
         conn.commit()
         conn.close()
-    except: 
+    except:
         pass
 
 def save_user_rating(username, restaurant_id, rating, review=""):
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        cur.execute("INSERT INTO ratings (username, restaurant_id, rating, review) VALUES (?, ?, ?, ?)",
-                    (username, restaurant_id, int(rating), review or ""))
+        cur.execute(
+            "INSERT INTO ratings (username, restaurant_id, rating, review) VALUES (?, ?, ?, ?)",
+            (username, restaurant_id, int(rating), review or "")
+        )
         conn.commit()
         conn.close()
-    except: 
+    except:
         pass
 
+def get_reviews(restaurant_id):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        df = pd.read_sql(
+            "SELECT username, rating, review, created_at FROM ratings WHERE restaurant_id=? ORDER BY created_at DESC",
+            conn, params=(restaurant_id,)
+        )
+        conn.close()
+        return df
+    except:
+        return pd.DataFrame()
+
 # ============================
-# RECOMMENDATION FUNCTIONS
+# RECOMMENDATION
 # ============================
 def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
     try:
@@ -241,34 +254,55 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# UI CARD — CLEANED
+# RESTAURANT CARD (⭐ ENHANCED)
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
         st.markdown(f"### {row['name']}")
         st.caption(f"{row.get('cuisine','')} • {row.get('location','')} • {row.get('price','N/A')}")
-        
-        rating_val = row.get('rating')
-        if pd.notna(rating_val) and rating_val != "":
-            try:
-                rv = float(rating_val)
-                stars = "⭐" * int(round(rv))
-                st.markdown(f"{stars} **{rv:.1f}**")
-            except:
-                st.markdown(f"Rating: {rating_val}")
-        
-        if row.get('tags'):
-            tags = " ".join([f"`{t.strip()}`" for t in row['tags'].split(",") if t.strip()])
+
+        if pd.notna(row.get("rating", "")):
+            rv = float(row["rating"])
+            stars = "⭐" * int(round(rv))
+            st.markdown(f"{stars} **{rv:.1f}**")
+
+        if row.get("tags"):
+            tags = " ".join([f"`{t.strip()}`" for t in row["tags"].split(",") if t.strip()])
             st.markdown(tags)
-        
-        # Simplified details box (Show Similar removed)
-        with st.expander("Rate & Review"):
-            st.markdown("### Share your experience")
-            rating = st.selectbox("Rating", [5,4,3,2,1], key=f"rate_{key_prefix}_{row['restaurant_id']}")
-            review = st.text_area("Write your review (optional)", key=f"rev_{key_prefix}_{row['restaurant_id']}", height=80)
-            if st.button("Submit", key=f"submit_{key_prefix}_{row['restaurant_id']}"):
-                save_user_rating(st.session_state.username, str(row['restaurant_id']), rating, review)
-                st.success("Thank you for your review!")
+
+        with st.expander("Rate & Reviews"):
+            # Rating input — star slider
+            st.markdown("#### ⭐ Rate this restaurant")
+            rating = st.slider(
+                "Select rating", 
+                min_value=1, max_value=5, step=1, value=5,
+                key=f"rating_slider_{key_prefix}_{row['restaurant_id']}"
+            )
+            review = st.text_area(
+                "Write your review (optional)", 
+                key=f"review_text_{key_prefix}_{row['restaurant_id']}", 
+                height=80
+            )
+
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("Submit Review", key=f"submit_{key_prefix}_{row['restaurant_id']}"):
+                    save_user_rating(st.session_state.username, row['restaurant_id'], rating, review)
+                    st.success("✅ Review submitted successfully!")
+
+            with col2:
+                if st.button("Show Reviews", key=f"show_{key_prefix}_{row['restaurant_id']}"):
+                    reviews_df = get_reviews(row['restaurant_id'])
+                    if reviews_df.empty:
+                        st.info("No reviews yet for this restaurant.")
+                    else:
+                        st.markdown("### 📝 Recent Reviews")
+                        for _, r in reviews_df.iterrows():
+                            stars = "⭐" * int(r['rating'])
+                            st.markdown(f"**{r['username']}** — {stars} • {r['created_at'][:10]}")
+                            if r['review']:
+                                st.caption(r['review'])
+                            st.markdown("---")
 
 # ============================
 # MAIN APP
@@ -340,12 +374,11 @@ def main():
             st.session_state.clear()
             st.rerun()
 
-    # --- Pages ---
     if page == "Home":
         st.header("Recommended for You")
         recs = recommend_user(st.session_state.username, meta, similarity, st.session_state.location, st.session_state.preferences)
         if recs.empty:
-            st.info("No recommendations. Try setting location or preferences.")
+            st.info("No recommendations yet. Try setting your preferences.")
         else:
             cols = st.columns(3)
             for i, row in recs.iterrows():
@@ -362,9 +395,11 @@ def main():
         df = meta.copy()
         if search:
             s = search.lower()
-            mask = (df['name'].str.lower().str.contains(s, na=False) |
-                    df['cuisine'].str.lower().str.contains(s, na=False) |
-                    df['tags'].str.lower().str.contains(s, na=False))
+            mask = (
+                df['name'].str.lower().str.contains(s, na=False)
+                | df['cuisine'].str.lower().str.contains(s, na=False)
+                | df['tags'].str.lower().str.contains(s, na=False)
+            )
             df = df[mask]
         if cuisine_filter:
             df = df[df['cuisine'].isin(cuisine_filter)]
