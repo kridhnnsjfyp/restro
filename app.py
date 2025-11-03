@@ -1,6 +1,6 @@
 """
 FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender — Collaborative Filtering + Similarity %
+Restaurant Recommender — Explainable Similarity
 EC3319 — Nilai University | Supervisor: Subarna Sapkota
 """
 
@@ -111,7 +111,7 @@ def load_metadata():
     return df
 
 # ============================
-# SIMILARITY — ROW-WISE NORMALIZED (0–100%)
+# SIMILARITY — EXPLAINABLE
 # ============================
 @st.cache_data
 def load_or_create_similarity(meta):
@@ -124,7 +124,7 @@ def load_or_create_similarity(meta):
         except:
             pass
 
-    with st.spinner("Generating similarity matrix..."):
+    with st.spinner("Generating similarity..."):
         n = len(meta)
         sim_matrix = np.zeros((n, n))
         
@@ -132,17 +132,22 @@ def load_or_create_similarity(meta):
             row_i = meta.iloc[i]
             tags_i = set([t.strip().lower() for t in str(row_i['tags']).split(",") if t.strip()])
             cuisine_i = str(row_i['cuisine']).lower()
+            price_i = str(row_i['price']).lower()
             for j in range(n):
                 if i == j: continue
                 row_j = meta.iloc[j]
                 tags_j = set([t.strip().lower() for t in str(row_j['tags']).split(",") if t.strip()])
                 cuisine_j = str(row_j['cuisine']).lower()
+                price_j = str(row_j['price']).lower()
                 
-                tag_overlap = len(tags_i & tags_j)
-                cuisine_match = 10 if cuisine_i == cuisine_j else 0
-                sim_matrix[i, j] = tag_overlap * 5 + cuisine_match
+                score = 0
+                if cuisine_i == cuisine_j:
+                    score += 10
+                if price_i == price_j:
+                    score += 8
+                score += len(tags_i & tags_j) * 5
+                sim_matrix[i, j] = score
 
-        # Normalize per row to 0–100%
         row_max = sim_matrix.max(axis=1, keepdims=True)
         row_max[row_max == 0] = 1
         sim_matrix = (sim_matrix / row_max) * 100
@@ -150,7 +155,7 @@ def load_or_create_similarity(meta):
         MODEL_DIR.mkdir(exist_ok=True)
         with open(SIMILARITY_PKL, "wb") as f:
             pickle.dump(sim_matrix, f)
-    st.success("Similarity matrix ready!")
+    st.success("Similarity ready!")
     return sim_matrix
 
 # ============================
@@ -221,9 +226,9 @@ def save_user_rating(username, restaurant_id, rating, review=""):
     except: pass
 
 # ============================
-# GET SIMILAR — ALWAYS SHOW TOP 6
+# GET SIMILAR — WITH REASONS
 # ============================
-def get_similar(restaurant_id, similarity, meta, top_n=6):
+def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
     rid = str(restaurant_id).strip()
     try:
         idx = meta[meta['restaurant_id'] == rid].index
@@ -234,24 +239,43 @@ def get_similar(restaurant_id, similarity, meta, top_n=6):
         order = np.argsort(-scores)
         results = []
         count = 0
+        
+        row_i = meta.iloc[idx]
+        tags_i = set([t.strip().lower() for t in str(row_i['tags']).split(",") if t.strip()])
+        cuisine_i = str(row_i['cuisine']).lower()
+        price_i = str(row_i['price']).lower()
+
         for i in order:
             if i == idx:
                 continue
             sim_pct = round(scores[i], 1)
             if sim_pct == 0:
                 continue
-            row = meta.iloc[i]
+            row_j = meta.iloc[i]
+            tags_j = set([t.strip().lower() for t in str(row_j['tags']).split(",") if t.strip()])
+            cuisine_j = str(row_j['cuisine']).lower()
+            price_j = str(row_j['price']).lower()
+
+            reasons = []
+            if cuisine_i == cuisine_j:
+                reasons.append("Same cuisine")
+            if price_i == price_j:
+                reasons.append("Same price")
+            shared_tags = [t.title() for t in (tags_i & tags_j)]
+            if shared_tags:
+                reasons.append(f"Tags: {', '.join(shared_tags[:3])}")
+
             results.append({
-                'name': row['name'],
-                'cuisine': row['cuisine'],
-                'similarity': sim_pct
+                'name': row_j['name'],
+                'cuisine': row_j['cuisine'],
+                'similarity': sim_pct,
+                'reasons': " | ".join(reasons) if reasons else "Similar vibe"
             })
             count += 1
             if count >= top_n:
                 break
         return pd.DataFrame(results)
-    except Exception as e:
-        st.warning(f"Similarity error: {e}")
+    except:
         return pd.DataFrame()
 
 # ============================
@@ -284,7 +308,7 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# UI CARD — SHOW SIMILAR ALWAYS
+# UI CARD — SHOW REASONS
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
@@ -315,13 +339,14 @@ def restaurant_card(row, key_prefix, meta, similarity):
                     st.success("Thank you!")
             with col2:
                 if st.button("Show Similar", key=f"sim_{key_prefix}_{row['restaurant_id']}"):
-                    sims = get_similar(row['restaurant_id'], similarity, meta)
+                    sims = get_similar_with_reasons(row['restaurant_id'], similarity, meta)
                     if sims.empty:
                         st.info("No similar restaurants found.")
                     else:
-                        st.markdown("**Similar restaurants:**")
+                        st.markdown("**Why these are similar:**")
                         for _, s in sims.iterrows():
-                            st.markdown(f"• **{s['name']}** — {s['cuisine']} — **{s['similarity']}% similar**")
+                            st.markdown(f"• **{s['name']}** — {s['cuisine']} — **{s['similarity']:.0f}%**")
+                            st.markdown(f"  <small style='color:#28a745'>{s['reasons']}</small>", unsafe_allow_html=True)
 
 # ============================
 # MAIN APP
