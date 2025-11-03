@@ -517,34 +517,15 @@ def main():
 
     elif page == "Preferences":
         st.header("Update Preferences")
-        st.markdown("**Select your favorite tags**")
-        
-        all_tags = set()
-        for tags in meta['tags'].dropna():
-            all_tags.update([t.strip().title() for t in str(tags).split(",") if t.strip()])
-        all_tags = sorted(all_tags)
-
-        default_tags = [
-            t.strip().title() for t in st.session_state.preferences.split(",")
-            if t.strip() and t.strip().title() in all_tags
-        ]
-
-        selected_tags = st.multiselect(
-            "Choose preferences (e.g., cozy, momo, wifi)",
-            options=all_tags,
-            default=default_tags
+        new_prefs = st.text_area(
+            "Cuisine, vibe, etc. (comma-separated)",
+            st.session_state.preferences,
+            height=100
         )
-
         if st.button("Save Preferences"):
-            new_prefs = ", ".join([t.lower() for t in selected_tags])
             st.session_state.preferences = new_prefs
             update_user_preferences(st.session_state.username, new_prefs)
             st.success("Preferences updated!")
-            st.rerun()
-
-        if selected_tags:
-            tag_display = " ".join([f"<span style='background:#d4edda; padding:2px 6px; border-radius:4px; font-size:0.8em; margin:2px'>{t}</span>" for t in selected_tags])
-            st.markdown(f"**Your preferences:** {tag_display}", unsafe_allow_html=True)
 
     elif page == "Reviews":
         st.header("Your Reviews")
@@ -560,8 +541,6 @@ def main():
                     st.markdown(f"**{name}** — ★ {r['rating']} — {r['review']}")
         except:
             st.info("No reviews.")
-
-    # FOOTER REMOVED
 
 if __name__ == "__main__":
     main()
