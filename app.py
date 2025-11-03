@@ -436,9 +436,14 @@ def main():
                     st.rerun()
         return
 
+    # === SIDEBAR: USER PROFILE ===
     with st.sidebar:
         st.markdown(f"### {st.session_state.username}")
-        st.write(f"Location: **{st.session_state.location or 'Any'}**")
+        st.write(f"**Location:** {st.session_state.location or 'Any'}")
+        if st.session_state.preferences:
+            st.write(f"**Preferences:** {st.session_state.preferences}")
+        else:
+            st.write("**Preferences:** None")
         st.markdown("---")
         page = st.radio("Menu", ["Home", "Explore", "Location", "Preferences", "Reviews", "Logout"])
         if page == "Logout":
@@ -509,10 +514,11 @@ def main():
 
     elif page == "Location":
         st.header("Update Location")
-        new_loc = st.text_input("Your area", st.session_state.location)
+        all_locations = ["Any"] + sorted(meta['location'].unique())
+        new_loc = st.selectbox("Select your area", all_locations, index=all_locations.index(st.session_state.location) if st.session_state.location in all_locations else 0)
         if st.button("Save Location"):
-            st.session_state.location = new_loc
-            update_user_location(st.session_state.username, new_loc)
+            st.session_state.location = new_loc if new_loc != "Any" else ""
+            update_user_location(st.session_state.username, st.session_state.location)
             st.success("Location updated!")
 
     elif page == "Preferences":
