@@ -1,6 +1,6 @@
 """
 FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender — Explainable Similarity (No %)
+Restaurant Recommender — Preferences with Tag System
 EC3319 — Nilai University | Supervisor: Subarna Sapkota
 """
 
@@ -150,7 +150,7 @@ def load_or_create_similarity(meta):
 
         row_max = sim_matrix.max(axis=1, keepdims=True)
         row_max[row_max == 0] = 1
-        sim_matrix = (sim_matrix / row_max) * 100  # For ranking only
+        sim_matrix = (sim_matrix / row_max) * 100  # For ranking
 
         MODEL_DIR.mkdir(exist_ok=True)
         with open(SIMILARITY_PKL, "wb") as f:
@@ -258,7 +258,6 @@ def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
 
             reasons = []
             if cuisine_i == cuisine_j and cuisine_i:
-                # Show cuisine name
                 reasons.append(f"{cuisine_i.title()} available")
             if price_i == price_j and price_i:
                 reasons.append("Similar price")
@@ -282,7 +281,7 @@ def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
         return pd.DataFrame()
 
 # ============================
-# RECOMMEND USER
+# RECOMMEND USER — USES TAG PREFERENCES
 # ============================
 def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
     try:
@@ -311,7 +310,7 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# UI CARD — SHOW REASONS ONLY
+# UI CARD
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
@@ -410,7 +409,6 @@ def main():
     with st.sidebar:
         st.markdown(f"### {st.session_state.username}")
         st.write(f"Location: **{st.session_state.location or 'Any'}**")
-        st.write(f"Preferences: **{st.session_state.preferences or 'None'}**")
         st.markdown("---")
         page = st.radio("Menu", ["Home", "Explore", "Location", "Preferences", "Reviews", "Logout"])
         if page == "Logout":
@@ -489,11 +487,32 @@ def main():
 
     elif page == "Preferences":
         st.header("Update Preferences")
-        new_prefs = st.text_area("Cuisine, vibe, etc. (comma-separated)", st.session_state.preferences)
+        st.markdown("**Select your favorite tags (comma-separated)**")
+        
+        # Get all unique tags from dataset
+        all_tags = set()
+        for tags in meta['tags'].dropna():
+            all_tags.update([t.strip().title() for t in str(tags).split(",") if t.strip()])
+        all_tags = sorted(all_tags)
+
+        # Multi-select for tags
+        selected_tags = st.multiselect(
+            "Choose preferences (e.g., cozy, momo, wifi)",
+            options=all_tags,
+            default=[t.title() for t in st.session_state.preferences.split(",") if t.strip()] if st.session_state.preferences else []
+        )
+
+        # Save button
         if st.button("Save Preferences"):
+            new_prefs = ", ".join([t.lower() for t in selected_tags])
             st.session_state.preferences = new_prefs
             update_user_preferences(st.session_state.username, new_prefs)
             st.success("Preferences updated!")
+
+        # Show current tags
+        if selected_tags:
+            tag_display = " ".join([f"<span style='background:#d4edda; padding:2px 6px; border-radius:4px; font-size:0.8em; margin:2px'>{t}</span>" for t in selected_tags])
+            st.markdown(f"**Your preferences:** {tag_display}", unsafe_allow_html=True)
 
     elif page == "Reviews":
         st.header("Your Reviews")
