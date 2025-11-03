@@ -1,6 +1,6 @@
 """
 FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender — Preferences with Tag System
+Restaurant Recommender — Collaborative Filtering + Explainable Similarity
 EC3319 — Nilai University | Supervisor: Subarna Sapkota
 """
 
@@ -150,7 +150,7 @@ def load_or_create_similarity(meta):
 
         row_max = sim_matrix.max(axis=1, keepdims=True)
         row_max[row_max == 0] = 1
-        sim_matrix = (sim_matrix / row_max) * 100  # For ranking
+        sim_matrix = (sim_matrix / row_max) * 100  # For ranking only
 
         MODEL_DIR.mkdir(exist_ok=True)
         with open(SIMILARITY_PKL, "wb") as f:
@@ -487,7 +487,7 @@ def main():
 
     elif page == "Preferences":
         st.header("Update Preferences")
-        st.markdown("**Select your favorite tags (comma-separated)**")
+        st.markdown("**Select your favorite tags**")
         
         # Get all unique tags from dataset
         all_tags = set()
@@ -495,11 +495,17 @@ def main():
             all_tags.update([t.strip().title() for t in str(tags).split(",") if t.strip()])
         all_tags = sorted(all_tags)
 
+        # VALIDATE DEFAULT TAGS — ONLY EXISTING ONES
+        default_tags = [
+            t.strip().title() for t in st.session_state.preferences.split(",")
+            if t.strip() and t.strip().title() in all_tags
+        ]
+
         # Multi-select for tags
         selected_tags = st.multiselect(
             "Choose preferences (e.g., cozy, momo, wifi)",
             options=all_tags,
-            default=[t.title() for t in st.session_state.preferences.split(",") if t.strip()] if st.session_state.preferences else []
+            default=default_tags
         )
 
         # Save button
@@ -508,6 +514,7 @@ def main():
             st.session_state.preferences = new_prefs
             update_user_preferences(st.session_state.username, new_prefs)
             st.success("Preferences updated!")
+            st.rerun()
 
         # Show current tags
         if selected_tags:
