@@ -111,7 +111,7 @@ def load_metadata():
     return df
 
 # ============================
-# SIMILARITY — REALISTIC 70–100%
+# SIMILARITY — ROW-WISE NORMALIZED (0–100%)
 # ============================
 @st.cache_data
 def load_or_create_similarity(meta):
@@ -142,7 +142,7 @@ def load_or_create_similarity(meta):
                 cuisine_match = 10 if cuisine_i == cuisine_j else 0
                 sim_matrix[i, j] = tag_overlap * 5 + cuisine_match
 
-        # Normalize per row
+        # Normalize per row to 0–100%
         row_max = sim_matrix.max(axis=1, keepdims=True)
         row_max[row_max == 0] = 1
         sim_matrix = (sim_matrix / row_max) * 100
@@ -221,30 +221,38 @@ def save_user_rating(username, restaurant_id, rating, review=""):
     except: pass
 
 # ============================
-# GET SIMILAR — ≥50%
+# GET SIMILAR — ALWAYS SHOW TOP 6
 # ============================
 def get_similar(restaurant_id, similarity, meta, top_n=6):
     rid = str(restaurant_id).strip()
     try:
         idx = meta[meta['restaurant_id'] == rid].index
-        if idx.empty: return pd.DataFrame()
+        if idx.empty:
+            return pd.DataFrame()
         idx = idx[0]
         scores = similarity[idx]
         order = np.argsort(-scores)
         results = []
+        count = 0
         for i in order:
-            if i == idx: continue
+            if i == idx:
+                continue
             sim_pct = round(scores[i], 1)
-            if sim_pct < 50: break
+            if sim_pct == 0:
+                continue
             row = meta.iloc[i]
             results.append({
                 'name': row['name'],
                 'cuisine': row['cuisine'],
                 'similarity': sim_pct
             })
-            if len(results) >= top_n: break
+            count += 1
+            if count >= top_n:
+                break
         return pd.DataFrame(results)
-    except: return pd.DataFrame()
+    except Exception as e:
+        st.warning(f"Similarity error: {e}")
+        return pd.DataFrame()
 
 # ============================
 # RECOMMEND USER
@@ -276,7 +284,7 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# UI CARD
+# UI CARD — SHOW SIMILAR ALWAYS
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
@@ -309,9 +317,9 @@ def restaurant_card(row, key_prefix, meta, similarity):
                 if st.button("Show Similar", key=f"sim_{key_prefix}_{row['restaurant_id']}"):
                     sims = get_similar(row['restaurant_id'], similarity, meta)
                     if sims.empty:
-                        st.info("No highly similar restaurants found.")
+                        st.info("No similar restaurants found.")
                     else:
-                        st.markdown("**Highly Similar:**")
+                        st.markdown("**Similar restaurants:**")
                         for _, s in sims.iterrows():
                             st.markdown(f"• **{s['name']}** — {s['cuisine']} — **{s['similarity']}% similar**")
 
@@ -443,7 +451,6 @@ def main():
             with cols[i % 3]:
                 restaurant_card(row, f"exp_{i}", meta, similarity)
 
-    # Location & Preferences Pages (Optional)
     elif page == "Location":
         st.header("Update Location")
         new_loc = st.text_input("Your area", st.session_state.location)
