@@ -1,6 +1,6 @@
 """
 FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender — Explainable Similarity
+Restaurant Recommender — Explainable Similarity (No %)
 EC3319 — Nilai University | Supervisor: Subarna Sapkota
 """
 
@@ -111,7 +111,7 @@ def load_metadata():
     return df
 
 # ============================
-# SIMILARITY — EXPLAINABLE
+# SIMILARITY — EXPLAINABLE (NO %)
 # ============================
 @st.cache_data
 def load_or_create_similarity(meta):
@@ -150,7 +150,7 @@ def load_or_create_similarity(meta):
 
         row_max = sim_matrix.max(axis=1, keepdims=True)
         row_max[row_max == 0] = 1
-        sim_matrix = (sim_matrix / row_max) * 100
+        sim_matrix = (sim_matrix / row_max) * 100  # For ranking only
 
         MODEL_DIR.mkdir(exist_ok=True)
         with open(SIMILARITY_PKL, "wb") as f:
@@ -226,7 +226,7 @@ def save_user_rating(username, restaurant_id, rating, review=""):
     except: pass
 
 # ============================
-# GET SIMILAR — WITH REASONS
+# GET SIMILAR — SMART REASONS (NO %)
 # ============================
 def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
     rid = str(restaurant_id).strip()
@@ -248,8 +248,8 @@ def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
         for i in order:
             if i == idx:
                 continue
-            sim_pct = round(scores[i], 1)
-            if sim_pct == 0:
+            sim_score = scores[i]
+            if sim_score == 0:
                 continue
             row_j = meta.iloc[i]
             tags_j = set([t.strip().lower() for t in str(row_j['tags']).split(",") if t.strip()])
@@ -257,19 +257,22 @@ def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
             price_j = str(row_j['price']).lower()
 
             reasons = []
-            if cuisine_i == cuisine_j:
-                reasons.append("Same cuisine")
-            if price_i == price_j:
-                reasons.append("Same price")
+            if cuisine_i == cuisine_j and cuisine_i:
+                # Show cuisine name
+                reasons.append(f"{cuisine_i.title()} available")
+            if price_i == price_j and price_i:
+                reasons.append("Similar price")
             shared_tags = [t.title() for t in (tags_i & tags_j)]
             if shared_tags:
-                reasons.append(f"Tags: {', '.join(shared_tags[:3])}")
+                tags_str = ", ".join(shared_tags[:3])
+                reasons.append(f"{tags_str} available")
+
+            reason_text = " | ".join(reasons) if reasons else "Similar vibe"
 
             results.append({
                 'name': row_j['name'],
                 'cuisine': row_j['cuisine'],
-                'similarity': sim_pct,
-                'reasons': " | ".join(reasons) if reasons else "Similar vibe"
+                'reasons': reason_text
             })
             count += 1
             if count >= top_n:
@@ -308,7 +311,7 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# UI CARD — SHOW REASONS
+# UI CARD — SHOW REASONS ONLY
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
@@ -343,9 +346,9 @@ def restaurant_card(row, key_prefix, meta, similarity):
                     if sims.empty:
                         st.info("No similar restaurants found.")
                     else:
-                        st.markdown("**Why these are similar:**")
+                        st.markdown("**Similar restaurants:**")
                         for _, s in sims.iterrows():
-                            st.markdown(f"• **{s['name']}** — {s['cuisine']} — **{s['similarity']:.0f}%**")
+                            st.markdown(f"• **{s['name']}** — {s['cuisine']}")
                             st.markdown(f"  <small style='color:#28a745'>{s['reasons']}</small>", unsafe_allow_html=True)
 
 # ============================
