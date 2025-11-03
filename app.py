@@ -1,3 +1,9 @@
+"""
+FINAL FYP APP — KRISH CHAKRADHAR (00020758)
+Restaurant Recommender — Collaborative Filtering + Similarity %
+EC3319 — Nilai University | Supervisor: Subarna Sapkota
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -71,7 +77,7 @@ def load_metadata():
         st.warning("No restaurant data found. Using sample data.")
         df = pd.DataFrame([{
             "restaurant_id": "r1", "name": "Sample Cafe", "cuisine": "Multi-Cuisine",
-            "location": "Thamel", "rating": 4.0, "price": "Medium", "tags": "coffee, wifi, cozy"
+            "location": "Thamel", "rating": 4.0, "price": "Medium", "tags": "cozy, coffee, wifi"
         }])
     else:
         rename_map = {
@@ -83,6 +89,7 @@ def load_metadata():
             "tags": "tags"
         }
         df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+        
         if "restaurant_id" not in df.columns:
             df["restaurant_id"] = df.index.astype(str)
         if "name" not in df.columns:
@@ -97,12 +104,14 @@ def load_metadata():
             df["tags"] = ""
         if "rating" in df.columns:
             df["rating"] = pd.to_numeric(df["rating"], errors='coerce')
+    
     df = df.fillna("")
     df["restaurant_id"] = df["restaurant_id"].astype(str).str.strip()
-    return df.reset_index(drop=True)
+    df = df.reset_index(drop=True)
+    return df
 
 # ============================
-# SIMILARITY (scaled to 60–100%)
+# SIMILARITY — ROW-WISE NORMALIZED (0–100%)
 # ============================
 @st.cache_data
 def load_or_create_similarity(meta):
@@ -115,31 +124,33 @@ def load_or_create_similarity(meta):
         except:
             pass
 
-    # build raw scores
-    n = len(meta)
-    sim_matrix = np.zeros((n, n))
-    for i in range(n):
-        row_i = meta.iloc[i]
-        tags_i = set([t.strip().lower() for t in str(row_i.get('tags','')).split(",") if t.strip()])
-        cuisine_i = str(row_i.get('cuisine','')).lower()
-        for j in range(n):
-            if i == j:
-                continue
-            row_j = meta.iloc[j]
-            tags_j = set([t.strip().lower() for t in str(row_j.get('tags','')).split(",") if t.strip()])
-            cuisine_j = str(row_j.get('cuisine','')).lower()
-            tag_overlap = len(tags_i & tags_j)
-            cuisine_match = 10 if cuisine_i and cuisine_i == cuisine_j else 0
-            sim_matrix[i, j] = tag_overlap * 5 + cuisine_match
+    with st.spinner("Generating similarity matrix..."):
+        n = len(meta)
+        sim_matrix = np.zeros((n, n))
+        
+        for i in range(n):
+            row_i = meta.iloc[i]
+            tags_i = set([t.strip().lower() for t in str(row_i['tags']).split(",") if t.strip()])
+            cuisine_i = str(row_i['cuisine']).lower()
+            for j in range(n):
+                if i == j: continue
+                row_j = meta.iloc[j]
+                tags_j = set([t.strip().lower() for t in str(row_j['tags']).split(",") if t.strip()])
+                cuisine_j = str(row_j['cuisine']).lower()
+                
+                tag_overlap = len(tags_i & tags_j)
+                cuisine_match = 10 if cuisine_i == cuisine_j else 0
+                sim_matrix[i, j] = tag_overlap * 5 + cuisine_match
 
-    # normalize per row, then scale to 60..100 so best matches look strong
-    row_max = sim_matrix.max(axis=1, keepdims=True)
-    row_max[row_max == 0] = 1
-    sim_matrix = (sim_matrix / row_max) * 40 + 60  # maps [0..row_max] -> [60..100]
+        # Normalize per row to 0–100%
+        row_max = sim_matrix.max(axis=1, keepdims=True)
+        row_max[row_max == 0] = 1
+        sim_matrix = (sim_matrix / row_max) * 100
 
-    MODEL_DIR.mkdir(exist_ok=True)
-    with open(SIMILARITY_PKL, "wb") as f:
-        pickle.dump(sim_matrix, f)
+        MODEL_DIR.mkdir(exist_ok=True)
+        with open(SIMILARITY_PKL, "wb") as f:
+            pickle.dump(sim_matrix, f)
+    st.success("Similarity matrix ready!")
     return sim_matrix
 
 # ============================
@@ -153,8 +164,7 @@ def get_user(username):
         row = cur.fetchone()
         conn.close()
         return dict(zip(["username", "email", "location", "preferences"], row)) if row else None
-    except:
-        return None
+    except: return None
 
 def create_user(username, email, password):
     if not username or not password:
@@ -164,19 +174,15 @@ def create_user(username, email, password):
         cur = conn.cursor()
         cur.execute("SELECT 1 FROM users WHERE username=?", (username,))
         if cur.fetchone():
-            conn.close()
             return False, "Username already taken."
         cur.execute("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
                     (username, email or "", hash_password(password)))
         conn.commit()
         conn.close()
-        return True, "Account created! Please login."
-    except Exception as e:
-        return False, f"Error creating user: {e}"
+        return True, "Account successfully created! Please login."
+    except: return False, "Error creating user."
 
 def verify_user(username, password):
-    if not username or not password:
-        return False
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
@@ -184,8 +190,7 @@ def verify_user(username, password):
         row = cur.fetchone()
         conn.close()
         return row and row[0] == hash_password(password)
-    except:
-        return False
+    except: return False
 
 def update_user_location(username, location):
     try:
@@ -194,8 +199,7 @@ def update_user_location(username, location):
         cur.execute("UPDATE users SET location=? WHERE username=?", (location, username))
         conn.commit()
         conn.close()
-    except:
-        pass
+    except: pass
 
 def update_user_preferences(username, prefs):
     try:
@@ -204,8 +208,7 @@ def update_user_preferences(username, prefs):
         cur.execute("UPDATE users SET preferences=? WHERE username=?", (prefs, username))
         conn.commit()
         conn.close()
-    except:
-        pass
+    except: pass
 
 def save_user_rating(username, restaurant_id, rating, review=""):
     try:
@@ -215,20 +218,44 @@ def save_user_rating(username, restaurant_id, rating, review=""):
                     (username, restaurant_id, int(rating), review or ""))
         conn.commit()
         conn.close()
-    except:
-        pass
+    except: pass
 
-def get_reviews(restaurant_id):
+# ============================
+# GET SIMILAR — ALWAYS SHOW TOP 6
+# ============================
+def get_similar(restaurant_id, similarity, meta, top_n=6):
+    rid = str(restaurant_id).strip()
     try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql("SELECT username, rating, review, created_at FROM ratings WHERE restaurant_id=? ORDER BY created_at DESC", conn, params=(restaurant_id,))
-        conn.close()
-        return df
-    except:
+        idx = meta[meta['restaurant_id'] == rid].index
+        if idx.empty:
+            return pd.DataFrame()
+        idx = idx[0]
+        scores = similarity[idx]
+        order = np.argsort(-scores)
+        results = []
+        count = 0
+        for i in order:
+            if i == idx:
+                continue
+            sim_pct = round(scores[i], 1)
+            if sim_pct == 0:
+                continue
+            row = meta.iloc[i]
+            results.append({
+                'name': row['name'],
+                'cuisine': row['cuisine'],
+                'similarity': sim_pct
+            })
+            count += 1
+            if count >= top_n:
+                break
+        return pd.DataFrame(results)
+    except Exception as e:
+        st.warning(f"Similarity error: {e}")
         return pd.DataFrame()
 
 # ============================
-# RECOMMENDATION
+# RECOMMEND USER
 # ============================
 def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
     try:
@@ -237,14 +264,13 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
         cur.execute("SELECT restaurant_id FROM ratings WHERE username=?", (username,))
         rated = {r[0] for r in cur.fetchall()}
         conn.close()
-    except:
-        rated = set()
-
+    except: rated = set()
     candidates = meta[~meta['restaurant_id'].isin(rated)].copy() if rated else meta.copy()
+
     if location and location.strip():
         candidates = candidates[candidates['location'].astype(str).str.contains(location, case=False, na=False)]
     if prefs and prefs.strip():
-        prefs_list = [p.strip().lower() for p in prefs.split(",") if p.strip()]
+        prefs_list = [p.strip().lower() for p in prefs.split(",")]
         mask = pd.Series(False, index=candidates.index)
         for p in prefs_list:
             mask |= candidates['name'].str.lower().str.contains(p, na=False)
@@ -258,107 +284,64 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# GET SIMILAR
-# ============================
-def get_similar(restaurant_id, similarity, meta, top_n=6, threshold=60):
-    rid = str(restaurant_id).strip()
-    try:
-        idxs = meta[meta['restaurant_id'] == rid].index
-        if idxs.empty:
-            return pd.DataFrame()
-        idx = idxs[0]
-        scores = similarity[idx]
-        order = np.argsort(-scores)
-        results = []
-        for i in order:
-            if i == idx:
-                continue
-            sim_pct = float(round(scores[i], 1))
-            if sim_pct < threshold:
-                continue
-            row = meta.iloc[i]
-            results.append({'restaurant_id': row['restaurant_id'], 'name': row['name'], 'cuisine': row.get('cuisine',''), 'similarity': sim_pct})
-            if len(results) >= top_n:
-                break
-        return pd.DataFrame(results)
-    except Exception as e:
-        st.warning(f"Similarity lookup error: {e}")
-        return pd.DataFrame()
-
-# ============================
-# UI CARD — WITH SHOW SIMILAR
+# UI CARD — SHOW SIMILAR ALWAYS
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
-        st.markdown(f"<h4 style='margin:0; color:#1A5F7A'>{row.get('name','Unknown')}</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='margin:0; color:#1A5F7A'>{row['name']}</h4>", unsafe_allow_html=True)
         st.markdown(f"<div style='color:#6c757d; font-size:13px'>{row.get('cuisine','')} • {row.get('location','')} • {row.get('price','N/A')}</div>", unsafe_allow_html=True)
-
-        rating_val = row.get('rating', "")
-        if pd.notna(rating_val) and rating_val != "":
+        
+        if pd.notna(row.get('rating')):
             try:
-                rv = float(rating_val)
-                stars = "★" * max(1, int(round(rv)))
+                rv = float(row['rating'])
+                stars = "★" * int(round(rv))
                 st.markdown(f"{stars} **{rv:.1f}**")
             except:
-                pass
-
+                st.markdown(f"★ {row['rating']}")
+        
         tags = row.get('tags', '')
         if tags:
-            tag_list = [f"<span style='background:#e9ecef; padding:2px 6px; border-radius:4px; font-size:0.8em; margin:2px'>{t.strip()}</span>" for t in str(tags).split(",") if t.strip()]
+            tag_list = [f"<span style='background:#e9ecef; padding:2px 6px; border-radius:4px; font-size:0.8em; margin:2px'>{t.strip()}</span>" for t in tags.split(",") if t.strip()]
             st.markdown(" ".join(tag_list), unsafe_allow_html=True)
-
-        with st.expander("Details & Reviews"):
-            # rating input (slider)
-            rating = st.slider("Rate this restaurant", 1, 5, 5, key=f"rate_{key_prefix}_{row.get('restaurant_id','')}")
-            review = st.text_area("Write a review", key=f"rev_{key_prefix}_{row.get('restaurant_id','')}", height=80)
-            if st.button("Submit Review", key=f"submit_{key_prefix}_{row.get('restaurant_id','')}"):
-                save_user_rating(st.session_state.username, str(row.get('restaurant_id','')), rating, review)
-                st.success("✅ Review submitted!")
-
-            # Show reviews
-            if st.button("Show Reviews", key=f"showrev_{key_prefix}_{row.get('restaurant_id','')}"):
-                revs = get_reviews(row.get('restaurant_id',''))
-                if revs.empty:
-                    st.info("No reviews yet.")
-                else:
-                    for _, r in revs.iterrows():
-                        stars = "★" * int(r['rating'])
-                        st.markdown(f"**{r['username']}** — {stars} • {r['created_at'][:10]}")
-                        if r['review']:
-                            st.caption(r['review'])
-                        st.markdown("---")
-
-            # Show similar button (restores prior behavior)
-            if st.button("Show Similar", key=f"sim_{key_prefix}_{row.get('restaurant_id','')}"):
-                sims = get_similar(row.get('restaurant_id',''), similarity, meta)
-                if sims.empty:
-                    st.info("No similar restaurants found (>=60%).")
-                else:
-                    st.markdown("### 🍽️ Similar Restaurants")
-                    for _, s in sims.iterrows():
-                        st.markdown(f"• **{s['name']}** — {s.get('cuisine','')} ({s['similarity']}% match)")
+        
+        with st.expander("Details & Actions"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Rate & Review**")
+                rating = st.selectbox("Rating", [5,4,3,2,1], key=f"rate_{key_prefix}_{row['restaurant_id']}")
+                review = st.text_area("Review", key=f"rev_{key_prefix}_{row['restaurant_id']}", height=70)
+                if st.button("Submit", key=f"submit_{key_prefix}_{row['restaurant_id']}"):
+                    save_user_rating(st.session_state.username, str(row['restaurant_id']), rating, review)
+                    st.success("Thank you!")
+            with col2:
+                if st.button("Show Similar", key=f"sim_{key_prefix}_{row['restaurant_id']}"):
+                    sims = get_similar(row['restaurant_id'], similarity, meta)
+                    if sims.empty:
+                        st.info("No similar restaurants found.")
+                    else:
+                        st.markdown("**Similar restaurants:**")
+                        for _, s in sims.iterrows():
+                            st.markdown(f"• **{s['name']}** — {s['cuisine']} — **{s['similarity']}% similar**")
 
 # ============================
-# MAIN
+# MAIN APP
 # ============================
 def main():
     st.markdown("<h1 style='text-align:center; color:#1A5F7A'>Kathmandu Restaurant Recommender</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#6c757d'>Find your perfect meal with smart recommendations</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#adb5bd'>Find your perfect meal with AI-powered recommendations</p>", unsafe_allow_html=True)
 
-    meta = load_metadata()
-    if meta.empty:
-        st.error("No restaurant metadata available.")
-        return
-    similarity = load_or_create_similarity(meta)
-
-    # initialize session state
     for k, v in {"logged_in": False, "username": None, "location": "", "preferences": ""}.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # auth screen
+    meta = load_metadata()
+    if meta.empty:
+        st.error("Failed to load restaurant data.")
+        return
+    similarity = load_or_create_similarity(meta)
+
     if not st.session_state.logged_in:
-        col1, col2, col3 = st.columns([1,2,1])
+        col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             tab1, tab2, tab3 = st.tabs(["Login", "Sign Up", "Guest"])
             with tab1:
@@ -371,9 +354,10 @@ def main():
                             st.session_state.username = user
                             u = get_user(user)
                             if u:
-                                st.session_state.location = u.get("location","") or ""
-                                st.session_state.preferences = u.get("preferences","") or ""
+                                st.session_state.location = u.get("location", "") or ""
+                                st.session_state.preferences = u.get("preferences", "") or ""
                             st.success("Welcome back!")
+                            st.balloons()
                             st.rerun()
                         else:
                             st.error("Invalid username or password.")
@@ -395,23 +379,21 @@ def main():
                     st.rerun()
         return
 
-    # sidebar
     with st.sidebar:
-        st.markdown(f"### 👤 {st.session_state.username}")
-        st.write(f"📍 Location: **{st.session_state.location or 'Any'}**")
-        st.write(f"🍽️ Preferences: **{st.session_state.preferences or 'None'}**")
+        st.markdown(f"### {st.session_state.username}")
+        st.write(f"Location: **{st.session_state.location or 'Any'}**")
+        st.write(f"Preferences: **{st.session_state.preferences or 'None'}**")
         st.markdown("---")
         page = st.radio("Menu", ["Home", "Explore", "Location", "Preferences", "Reviews", "Logout"])
         if page == "Logout":
             st.session_state.clear()
             st.rerun()
 
-    # pages
     if page == "Home":
         st.header("Recommended for You")
         recs = recommend_user(st.session_state.username, meta, similarity, st.session_state.location, st.session_state.preferences)
         if recs.empty:
-            st.info("No recommendations yet. Try setting preferences or location.")
+            st.info("No recommendations. Try setting location or preferences.")
         else:
             cols = st.columns(3)
             for i, row in recs.iterrows():
@@ -428,11 +410,9 @@ def main():
         df = meta.copy()
         if search:
             s = search.lower()
-            mask = (
-                df['name'].str.lower().str.contains(s, na=False) |
-                df['cuisine'].str.lower().str.contains(s, na=False) |
-                df['tags'].str.lower().str.contains(s, na=False)
-            )
+            mask = (df['name'].str.lower().str.contains(s, na=False) |
+                    df['cuisine'].str.lower().str.contains(s, na=False) |
+                    df['tags'].str.lower().str.contains(s, na=False))
             df = df[mask]
         if cuisine_filter:
             df = df[df['cuisine'].isin(cuisine_filter)]
@@ -472,40 +452,42 @@ def main():
                 restaurant_card(row, f"exp_{i}", meta, similarity)
 
     elif page == "Location":
-        st.header("Set Location")
-        new_loc = st.text_input("Enter your area", st.session_state.location)
+        st.header("Update Location")
+        new_loc = st.text_input("Your area", st.session_state.location)
         if st.button("Save Location"):
             st.session_state.location = new_loc
-            if st.session_state.username != "guest":
-                update_user_location(st.session_state.username, new_loc)
-            st.success("✅ Location updated!")
+            update_user_location(st.session_state.username, new_loc)
+            st.success("Location updated!")
 
     elif page == "Preferences":
-        st.header("Set Preferences")
-        new_prefs = st.text_area("Enter cuisines, vibes, etc. (comma-separated)", st.session_state.preferences)
+        st.header("Update Preferences")
+        new_prefs = st.text_area("Cuisine, vibe, etc. (comma-separated)", st.session_state.preferences)
         if st.button("Save Preferences"):
             st.session_state.preferences = new_prefs
-            if st.session_state.username != "guest":
-                update_user_preferences(st.session_state.username, new_prefs)
-            st.success("✅ Preferences saved!")
+            update_user_preferences(st.session_state.username, new_prefs)
+            st.success("Preferences updated!")
 
     elif page == "Reviews":
         st.header("Your Reviews")
         try:
             conn = sqlite3.connect(DB_PATH)
-            df = pd.read_sql("SELECT restaurant_id, rating, review, created_at FROM ratings WHERE username=? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
+            df = pd.read_sql("SELECT restaurant_id, rating, review FROM ratings WHERE username=?", conn, params=(st.session_state.username,))
             conn.close()
             if df.empty:
                 st.info("No reviews yet.")
             else:
                 for _, r in df.iterrows():
-                    name = meta.loc[meta['restaurant_id'] == r['restaurant_id'], 'name'].iloc[0] if not meta.loc[meta['restaurant_id'] == r['restaurant_id']].empty else "Unknown"
-                    st.markdown(f"**{name}** — {'★'*r['rating']} • {r['created_at'][:10]}")
-                    if r['review']:
-                        st.caption(r['review'])
-                    st.markdown("---")
+                    name = meta[meta['restaurant_id'] == r['restaurant_id']]['name'].iloc[0] if not meta[meta['restaurant_id'] == r['restaurant_id']].empty else "Unknown"
+                    st.markdown(f"**{name}** — ★ {r['rating']} — {r['review']}")
         except:
             st.info("No reviews.")
+
+    st.markdown("""
+    <div style='text-align:center; margin-top:50px; color:#7f8c8d; font-size:0.9rem;'>
+        <strong>Nilai University</strong> — FYP by <strong>Krish Chakradhar (00020758)</strong><br>
+        EC3319 • Supervisor: Subarna Sapkota
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
