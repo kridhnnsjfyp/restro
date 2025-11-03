@@ -1,6 +1,6 @@
 """
 FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender — Reviews in Details + Tag Preferences
+Restaurant Recommender — Collaborative Filtering + Explainable Similarity
 EC3319 — Nilai University | Supervisor: Subarna Sapkota
 """
 
@@ -327,7 +327,7 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# UI CARD — WITH REVIEWS IN DETAILS
+# UI CARD — WITH REVIEWS
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
@@ -368,7 +368,6 @@ def restaurant_card(row, key_prefix, meta, similarity):
                             st.markdown(f"• **{s['name']}** — {s['cuisine']}")
                             st.markdown(f"  <small style='color:#28a745'>{s['reasons']}</small>", unsafe_allow_html=True)
 
-            # === SHOW ALL REVIEWS ===
             st.markdown("---")
             st.markdown("**User Reviews**")
             reviews = get_restaurant_reviews(row['restaurant_id'])
@@ -562,12 +561,7 @@ def main():
         except:
             st.info("No reviews.")
 
-    st.markdown("""
-    <div style='text-align:center; margin-top:50px; color:#7f8c8d; font-size:0.9rem;'>
-        <strong>Nilai University</strong> — FYP by <strong>Krish Chakradhar (00020758)</strong><br>
-        EC3319 • Supervisor: Subarna Sapkota
-    </div>
-    """, unsafe_allow_html=True)
+    # FOOTER REMOVED
 
 if __name__ == "__main__":
     main()
