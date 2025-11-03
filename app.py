@@ -1,6 +1,6 @@
 """
 FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender — CLEAN UI + SIMILARITY % + INPUT CLEAR
+Restaurant Recommender — SIMILARITY % + GREEN/RED UX
 EC3319 — Nilai University | Supervisor: Subarna Sapkota
 """
 
@@ -109,7 +109,7 @@ def load_metadata():
     return df.reset_index(drop=True)
 
 # ============================
-# SIMILARITY + %
+# SIMILARITY (NO SKLEARN) + NORMALIZE TO %
 # ============================
 @st.cache_data
 def load_or_create_similarity(meta):
@@ -121,45 +121,33 @@ def load_or_create_similarity(meta):
         except:
             pass
 
-    st.info("Generating similarity...")
+    st.info("Generating similarity from tags & cuisine...")
     n = len(meta)
     sim_matrix = np.zeros((n, n))
-    max_score = 10  # 5 tags * 2 + 1 cuisine
-
+    
     for i in range(n):
         row_i = meta.iloc[i]
         tags_i = set([t.strip().lower() for t in str(row_i['tags']).split(",") if t.strip()])
         cuisine_i = str(row_i['cuisine']).lower()
-        sim_matrix[i, i] = 1.0
         for j in range(n):
             if i == j: continue
             row_j = meta.iloc[j]
             tags_j = set([t.strip().lower() for t in str(row_j['tags']).split(",") if t.strip()])
             cuisine_j = str(row_j['cuisine']).lower()
-            score = len(tags_i & tags_j) * 2 + (1 if cuisine_i == cuisine_j else 0)
-            sim_matrix[i, j] = min(score / max_score, 1.0)
+            tag_overlap = len(tags_i & tags_j)
+            cuisine_match = 1 if cuisine_i == cuisine_j else 0
+            sim_matrix[i, j] = tag_overlap * 2 + cuisine_match
+
+    # Normalize to 0–100%
+    max_score = sim_matrix.max()
+    if max_score > 0:
+        sim_matrix = (sim_matrix / max_score) * 100
 
     MODEL_DIR.mkdir(exist_ok=True)
     with open(SIMILARITY_PKL, "wb") as f:
         pickle.dump(sim_matrix, f)
     st.success("Similarity generated!")
     return sim_matrix
-
-def get_similar_with_score(restaurant_id, similarity, meta, top_n=6):
-    if similarity is None or meta.empty:
-        return []
-    rid = str(restaurant_id).strip()
-    try:
-        idx = meta[meta['restaurant_id'].astype(str).str.strip() == rid].index[0]
-        scores = similarity[idx]
-        order = np.argsort(-scores)
-        results = []
-        for i in order:
-            if str(meta.iloc[i]['restaurant_id']) != rid and len(results) < top_n:
-                results.append({'row': meta.iloc[i], 'similarity': scores[i]})
-        return results
-    except:
-        return []
 
 # ============================
 # DB FUNCTIONS
@@ -182,6 +170,7 @@ def create_user(username, email, password):
         cur = conn.cursor()
         cur.execute("SELECT 1 FROM users WHERE username=?", (username,))
         if cur.fetchone():
+            conn.close()
             return False, "Username already taken."
         cur.execute("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
                     (username, email or "", hash_password(password)))
@@ -230,6 +219,35 @@ def save_user_rating(username, restaurant_id, rating, review=""):
     except: pass
 
 # ============================
+# SIMILAR WITH % — FIXED
+# ============================
+def get_similar(restaurant_id, similarity, meta, top_n=6):
+    if similarity is None or meta.empty:
+        return pd.DataFrame()
+    rid = str(restaurant_id).strip()
+    try:
+        idx = meta[meta['restaurant_id'].astype(str).str.strip() == rid].index[0]
+        scores = similarity[idx]
+        order = np.argsort(-scores)
+        results = []
+        for i in order:
+            if str(meta.iloc[i]['restaurant_id']) == rid:
+                continue
+            sim_pct = round(scores[i], 1)
+            if sim_pct < 10:  # Filter low similarity
+                break
+            results.append({
+                'name': meta.iloc[i]['name'],
+                'cuisine': meta.iloc[i]['cuisine'],
+                'similarity': sim_pct
+            })
+            if len(results) >= top_n:
+                break
+        return pd.DataFrame(results)
+    except:
+        return pd.DataFrame()
+
+# ============================
 # RECOMMEND
 # ============================
 def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
@@ -259,10 +277,11 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# UI CARD
+# UI CARD — SIMILARITY %
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.markdown(f"<h4 style='margin:0; color:#1A5F7A'>{row['name']}</h4>", unsafe_allow_html=True)
         st.markdown(f"<div style='color:#6c757d; font-size:13px'>{row.get('cuisine','')} • {row.get('location','')} • {row.get('price','N/A')}</div>", unsafe_allow_html=True)
         
@@ -290,23 +309,21 @@ def restaurant_card(row, key_prefix, meta, similarity):
                     st.success("Thank you!")
             with col2:
                 if st.button("Show Similar", key=f"sim_{key_prefix}_{row['restaurant_id']}"):
-                    sims = get_similar_with_score(row['restaurant_id'], similarity, meta)
-                    if not sims:
-                        st.info("No similar restaurants.")
+                    sims = get_similar(row['restaurant_id'], similarity, meta)
+                    if sims.empty:
+                        st.info("No similar restaurants found.")
                     else:
                         st.markdown("**Similar restaurants:**")
-                        for item in sims:
-                            s = item['row']
-                            percent = int(item['similarity'] * 100)
-                            st.markdown(f"• **{s['name']}** — {s.get('cuisine','')} — **{percent}% match**")
+                        for _, s in sims.iterrows():
+                            st.markdown(f"• **{s['name']}** — {s['cuisine']} — **{s['similarity']}% similar**")
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================
-# MAIN APP — CLEAN UI
+# MAIN APP — GREEN/RED UX
 # ============================
 def main():
     st.markdown("<h1 style='text-align:center; color:#1A5F7A'>Kathmandu Restaurant Recommender</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#6c757d'>Find your perfect meal with AI-powered recommendations</p>", unsafe_allow_html=True)
-
     meta = load_metadata()
     similarity = load_or_create_similarity(meta)
 
@@ -317,11 +334,9 @@ def main():
     if not st.session_state.logged_in:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            # Use selectbox to avoid duplicate tabs
-            auth_mode = st.selectbox("Choose action", ["Login", "Sign Up", "Continue as Guest"], key="auth_select")
-
-            if auth_mode == "Login":
-                with st.form("login_form"):
+            tab1, tab2, tab3 = st.tabs(["Login", "Sign Up", "Guest"])
+            with tab1:
+                with st.form("login"):
                     user = st.text_input("Username")
                     pw = st.text_input("Password", type="password")
                     if st.form_submit_button("Login"):
@@ -337,9 +352,8 @@ def main():
                             st.rerun()
                         else:
                             st.error("Invalid username or password.")
-
-            elif auth_mode == "Sign Up":
-                with st.form("signup_form", clear_on_submit=True):
+            with tab2:
+                with st.form("signup"):
                     new_user = st.text_input("Username")
                     email = st.text_input("Email (optional)")
                     new_pw = st.text_input("Password", type="password")
@@ -347,12 +361,10 @@ def main():
                         ok, msg = create_user(new_user, email, new_pw)
                         if ok:
                             st.success(msg)  # GREEN
-                            # Inputs cleared automatically
                         else:
                             st.error(msg)    # RED
-
-            elif auth_mode == "Continue as Guest":
-                if st.button("Enter as Guest"):
+            with tab3:
+                if st.button("Continue as Guest"):
                     st.session_state.logged_in = True
                     st.session_state.username = "guest"
                     st.rerun()
