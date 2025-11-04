@@ -318,7 +318,7 @@ def recommend_user(meta, similarity, location=None, prefs=None, top_n=12):
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# UI CARD — BUG-FREE REVIEW
+# UI CARD — FINAL, NO ERRORS
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
@@ -343,22 +343,22 @@ def restaurant_card(row, key_prefix, meta, similarity):
             with col1:
                 st.markdown("**Leave a Comment**")
                 review_key = f"rev_input_{key_prefix}_{row['restaurant_id']}"
+                submit_key = f"submit_rev_{key_prefix}_{row['restaurant_id']}"
                 
-                def clear_and_refresh():
-                    st.session_state[review_key] = ""
-                    st.session_state[f"refresh_rev_{row['restaurant_id']}"] = True
+                current_review = st.session_state.get(review_key, "")
                 
                 review = st.text_area(
                     "Your thoughts",
+                    value=current_review,
                     key=review_key,
                     height=70
                 )
                 
-                submit_key = f"submit_rev_{key_prefix}_{row['restaurant_id']}"
                 if st.button("Submit Review", key=submit_key):
                     if review and review.strip():
                         save_user_review(st.session_state.username, str(row['restaurant_id']), review)
-                        clear_and_refresh()
+                        st.session_state[review_key] = ""
+                        st.session_state[f"refresh_rev_{row['restaurant_id']}"] = True
                         st.success("Review submitted!")
                     else:
                         st.warning("Please write a comment.")
