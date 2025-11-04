@@ -24,7 +24,7 @@ SIMILARITY_PKL = MODEL_DIR / "similarity_matrix.pkl"
 RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 
 # ============================
-# INIT DB (NO RATING FIELD)
+# INIT DB
 # ============================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -110,7 +110,7 @@ def load_metadata():
     return df
 
 # ============================
-# SIMILARITY — EXPLAINABLE (NO %)
+# SIMILARITY
 # ============================
 @st.cache_data
 def load_or_create_similarity(meta):
@@ -241,7 +241,7 @@ def get_restaurant_reviews(restaurant_id):
         return pd.DataFrame()
 
 # ============================
-# GET SIMILAR — SMART REASONS
+# GET SIMILAR
 # ============================
 def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
     rid = str(restaurant_id).strip()
@@ -318,7 +318,7 @@ def recommend_user(meta, similarity, location=None, prefs=None, top_n=12):
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# UI CARD — REVIEW ONLY
+# UI CARD — INSTANT REVIEW
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
@@ -342,11 +342,19 @@ def restaurant_card(row, key_prefix, meta, similarity):
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**Leave a Comment**")
-                review = st.text_area("Your thoughts", key=f"rev_{key_prefix}_{row['restaurant_id']}", height=70)
-                if st.button("Submit Review", key=f"submit_{key_prefix}_{row['restaurant_id']}"):
-                    save_user_review(st.session_state.username, str(row['restaurant_id']), review)
-                    st.success("Review submitted!")
-                    st.rerun()
+                review_key = f"rev_input_{key_prefix}_{row['restaurant_id']}"
+                review = st.text_area("Your thoughts", key=review_key, height=70)
+                
+                submit_key = f"submit_rev_{key_prefix}_{row['restaurant_id']}"
+                if st.button("Submit Review", key=submit_key):
+                    if review.strip():
+                        save_user_review(st.session_state.username, str(row['restaurant_id']), review)
+                        st.session_state[review_key] = ""
+                        st.success("Review submitted!")
+                        st.session_state[f"refresh_rev_{row['restaurant_id']}"] = True
+                    else:
+                        st.warning("Please write a comment.")
+            
             with col2:
                 if st.button("Show Similar", key=f"sim_{key_prefix}_{row['restaurant_id']}"):
                     sims = get_similar_with_reasons(row['restaurant_id'], similarity, meta)
@@ -360,6 +368,12 @@ def restaurant_card(row, key_prefix, meta, similarity):
 
             st.markdown("---")
             st.markdown("**User Comments**")
+            
+            refresh_trigger = st.session_state.get(f"refresh_rev_{row['restaurant_id']}", False)
+            if refresh_trigger:
+                st.session_state[f"refresh_rev_{row['restaurant_id']}"] = False
+                st.rerun()
+
             reviews = get_restaurant_reviews(row['restaurant_id'])
             if reviews.empty:
                 st.info("No comments yet.")
@@ -425,7 +439,6 @@ def main():
                     st.rerun()
         return
 
-    # === SIDEBAR: USER PROFILE ===
     with st.sidebar:
         st.markdown(f"### {st.session_state.username}")
         st.write(f"**Location:** {st.session_state.location or 'Any'}")
