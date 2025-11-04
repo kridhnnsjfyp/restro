@@ -356,7 +356,7 @@ def restaurant_card(row, key_prefix, meta, similarity):
                 if st.button("Submit", key=f"submit_{key_prefix}_{row['restaurant_id']}"):
                     save_user_rating(st.session_state.username, str(row['restaurant_id']), rating, review)
                     st.success("Thank you!")
-                    st.rerun()  # Forces refresh → shows new review
+                    st.rerun()
             with col2:
                 if st.button("Show Similar", key=f"sim_{key_prefix}_{row['restaurant_id']}"):
                     sims = get_similar_with_reasons(row['restaurant_id'], similarity, meta)
@@ -547,7 +547,7 @@ def main():
                     name = meta[meta['restaurant_id'] == r['restaurant_id']]['name'].iloc[0] if not meta[meta['restaurant_id'] == r['restaurant_id']].empty else "Unknown"
                     st.markdown(f"**{name}** — ★ {r['rating']} — {r['review']}")
         except:
-            st.info("("No reviews.")
+            st.info("No reviews.")
 
 if __name__ == "__main__":
     main()
