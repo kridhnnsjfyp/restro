@@ -356,7 +356,7 @@ def restaurant_card(row, key_prefix, meta, similarity):
                 if st.button("Submit", key=f"submit_{key_prefix}_{row['restaurant_id']}"):
                     save_user_rating(st.session_state.username, str(row['restaurant_id']), rating, review)
                     st.success("Thank you!")
-                    st.rerun()
+                    st.rerun()  # Forces refresh → shows new review
             with col2:
                 if st.button("Show Similar", key=f"sim_{key_prefix}_{row['restaurant_id']}"):
                     sims = get_similar_with_reasons(row['restaurant_id'], similarity, meta)
@@ -515,7 +515,8 @@ def main():
     elif page == "Location":
         st.header("Update Location")
         all_locations = ["Any"] + sorted(meta['location'].unique())
-        new_loc = st.selectbox("Select your area", all_locations, index=all_locations.index(st.session_state.location) if st.session_state.location in all_locations else 0)
+        current_index = all_locations.index(st.session_state.location) if st.session_state.location in all_locations else 0
+        new_loc = st.selectbox("Select your area", all_locations, index=current_index)
         if st.button("Save Location"):
             st.session_state.location = new_loc if new_loc != "Any" else ""
             update_user_location(st.session_state.username, st.session_state.location)
@@ -546,7 +547,7 @@ def main():
                     name = meta[meta['restaurant_id'] == r['restaurant_id']]['name'].iloc[0] if not meta[meta['restaurant_id'] == r['restaurant_id']].empty else "Unknown"
                     st.markdown(f"**{name}** — ★ {r['rating']} — {r['review']}")
         except:
-            st.info("No reviews.")
+            st.info("("No reviews.")
 
 if __name__ == "__main__":
     main()
