@@ -7,7 +7,6 @@ import pickle
 import math
 from pathlib import Path
 
-
 # CONFIG & PATHS
 st.set_page_config(page_title="Kathmandu Restaurant Recommender", layout="wide", initial_sidebar_state="expanded")
 BASE_DIR = Path(__file__).parent
@@ -16,7 +15,7 @@ MODEL_DIR = BASE_DIR / "recommender_model"
 SIMILARITY_PKL = MODEL_DIR / "similarity_matrix.pkl"
 RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 
-# INIT DB
+# INIT DB (NO RATINGS TABLE)
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -28,16 +27,6 @@ def init_db():
             password_hash TEXT NOT NULL,
             location TEXT,
             preferences TEXT
-        )
-    ''')
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS ratings (
-            rating_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            restaurant_id TEXT NOT NULL,
-            rating INTEGER NOT NULL,
-            review TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     conn.commit()
@@ -97,7 +86,7 @@ def load_metadata():
     df = df.reset_index(drop=True)
     return df
 
-# SIMILARITY — EXPLAINABLE (NO %)
+# SIMILARITY
 @st.cache_data
 def load_or_create_similarity(meta):
     if SIMILARITY_PKL.exists():
@@ -143,7 +132,7 @@ def load_or_create_similarity(meta):
     st.success("Similarity ready!")
     return sim_matrix
 
-# DB FUNCTIONS
+# DB FUNCTIONS 
 def get_user(username):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -198,31 +187,6 @@ def update_user_preferences(username, prefs):
         conn.close()
     except: pass
 
-def save_user_rating(username, restaurant_id, rating, review=""):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("INSERT INTO ratings (username, restaurant_id, rating, review) VALUES (?, ?, ?, ?)",
-                    (username, restaurant_id, int(rating), review or ""))
-        conn.commit()
-        conn.close()
-    except: pass
-
-# GET REVIEWS FOR RESTAURANT
-def get_restaurant_reviews(restaurant_id):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql("""
-            SELECT username, rating, review, created_at 
-            FROM ratings 
-            WHERE restaurant_id=? AND review != ''
-            ORDER BY created_at DESC
-        """, conn, params=(str(restaurant_id),))
-        conn.close()
-        return df
-    except:
-        return pd.DataFrame()
-
 # GET SIMILAR — SMART REASONS
 def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
     rid = str(restaurant_id).strip()
@@ -276,16 +240,9 @@ def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
     except:
         return pd.DataFrame()
 
-# RECOMMEND USER
-def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("SELECT restaurant_id FROM ratings WHERE username=?", (username,))
-        rated = {r[0] for r in cur.fetchall()}
-        conn.close()
-    except: rated = set()
-    candidates = meta[~meta['restaurant_id'].isin(rated)].copy() if rated else meta.copy()
+# RECOMMEND USER (NO RATED FILTER)
+def recommend_user(meta, similarity, location=None, prefs=None, top_n=12):
+    candidates = meta.copy()
 
     if location and location.strip():
         candidates = candidates[candidates['location'].astype(str).str.contains(location, case=False, na=False)]
@@ -303,7 +260,7 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
         candidates = candidates.sort_values('rating', ascending=False, na_position='last')
     return candidates.head(top_n).reset_index(drop=True)
 
-# UI CARD — WITH REVIEWS
+# UI CARD — NO RATINGS/REVIEWS
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
         st.markdown(f"<h4 style='margin:0; color:#1A5F7A'>{row['name']}</h4>", unsafe_allow_html=True)
@@ -322,16 +279,10 @@ def restaurant_card(row, key_prefix, meta, similarity):
             tag_list = [f"<span style='background:#e9ecef; padding:2px 6px; border-radius:4px; font-size:0.8em; margin:2px'>{t.strip()}</span>" for t in tags.split(",") if t.strip()]
             st.markdown(" ".join(tag_list), unsafe_allow_html=True)
         
-        with st.expander("Details & Actions"):
+        with st.expander("Details & Similar"):
             col1, col2 = st.columns(2)
             with col1:
-                st.markdown("**Rate & Review**")
-                rating = st.selectbox("Rating", [5,4,3,2,1], key=f"rate_{key_prefix}_{row['restaurant_id']}")
-                review = st.text_area("Review", key=f"rev_{key_prefix}_{row['restaurant_id']}", height=70)
-                if st.button("Submit", key=f"submit_{key_prefix}_{row['restaurant_id']}"):
-                    save_user_rating(st.session_state.username, str(row['restaurant_id']), rating, review)
-                    st.success("Thank you!")
-                    st.rerun()
+                st.markdown("**No user ratings**")
             with col2:
                 if st.button("Show Similar", key=f"sim_{key_prefix}_{row['restaurant_id']}"):
                     sims = get_similar_with_reasons(row['restaurant_id'], similarity, meta)
@@ -342,18 +293,6 @@ def restaurant_card(row, key_prefix, meta, similarity):
                         for _, s in sims.iterrows():
                             st.markdown(f"• **{s['name']}** — {s['cuisine']}")
                             st.markdown(f"  <small style='color:#28a745'>{s['reasons']}</small>", unsafe_allow_html=True)
-
-            st.markdown("---")
-            st.markdown("**User Reviews**")
-            reviews = get_restaurant_reviews(row['restaurant_id'])
-            if reviews.empty:
-                st.info("No reviews yet.")
-            else:
-                for _, r in reviews.iterrows():
-                    stars = "★" * r['rating']
-                    st.markdown(f"**{r['username']}** — {stars} — *{r['created_at'][:10]}*")
-                    st.markdown(f"> {r['review']}")
-                    st.markdown("---")
 
 # MAIN APP
 def main():
@@ -409,7 +348,7 @@ def main():
                     st.rerun()
         return
 
-    # USER PROFILE 
+    # === SIDEBAR: USER PROFILE ===
     with st.sidebar:
         st.markdown(f"### {st.session_state.username}")
         st.write(f"**Location:** {st.session_state.location or 'Any'}")
@@ -418,14 +357,14 @@ def main():
         else:
             st.write("**Preferences:** None")
         st.markdown("---")
-        page = st.radio("Menu", ["Home", "Explore", "Location", "Preferences", "Reviews", "Logout"])
+        page = st.radio("Menu", ["Home", "Explore", "Location", "Preferences", "Logout"])
         if page == "Logout":
             st.session_state.clear()
             st.rerun()
 
     if page == "Home":
         st.header("Recommended for You")
-        recs = recommend_user(st.session_state.username, meta, similarity, st.session_state.location, st.session_state.preferences)
+        recs = recommend_user(meta, similarity, st.session_state.location, st.session_state.preferences)
         if recs.empty:
             st.info("No recommendations. Try setting location or preferences.")
         else:
@@ -505,21 +444,6 @@ def main():
             st.session_state.preferences = new_prefs
             update_user_preferences(st.session_state.username, new_prefs)
             st.success("Preferences updated!")
-
-    elif page == "Reviews":
-        st.header("Your Reviews")
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            df = pd.read_sql("SELECT restaurant_id, rating, review FROM ratings WHERE username=?", conn, params=(st.session_state.username,))
-            conn.close()
-            if df.empty:
-                st.info("No reviews yet.")
-            else:
-                for _, r in df.iterrows():
-                    name = meta[meta['restaurant_id'] == r['restaurant_id']]['name'].iloc[0] if not meta[meta['restaurant_id'] == r['restaurant_id']].empty else "Unknown"
-                    st.markdown(f"**{name}** — ★ {r['rating']} — {r['review']}")
-        except:
-            st.info("No reviews.")
 
 if __name__ == "__main__":
     main()
