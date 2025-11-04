@@ -296,8 +296,8 @@ def restaurant_card(row, key_prefix, meta, similarity):
 
 # MAIN APP
 def main():
-    st.markdown("<h1 style='text-align:center; color:#1A5F7A'>Kathmandu Restaurant Recommender</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#adb5bd'>Find your perfect meal with AI-powered recommendations</p>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center; color:#FFFFFF'>Kathmandu Restaurant Recommender</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#adb5bd'>Find your perfect meal with our recommendations</p>", unsafe_allow_html=True)
 
     for k, v in {"logged_in": False, "username": None, "location": "", "preferences": ""}.items():
         if k not in st.session_state:
