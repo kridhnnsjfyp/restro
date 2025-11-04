@@ -320,11 +320,18 @@ def recommend_user(meta, similarity, location=None, prefs=None, top_n=12):
 # ============================
 # UI CARD — FINAL, NO ERRORS
 # ============================
+# ============================
+# UI CARD — FIXED VERSION
+# ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
         st.markdown(f"<h4 style='margin:0; color:#1A5F7A'>{row['name']}</h4>", unsafe_allow_html=True)
-        st.markdown(f"<div style='color:#6c757d; font-size:13px'>{row.get('cuisine','')} • {row.get('location','')} • {row.get('price','N/A')}</div>", unsafe_allow_html=True)
-        
+        st.markdown(
+            f"<div style='color:#6c757d; font-size:13px'>{row.get('cuisine','')} • "
+            f"{row.get('location','')} • {row.get('price','N/A')}</div>", unsafe_allow_html=True
+        )
+
+        # Rating stars
         if pd.notna(row.get('rating')):
             try:
                 rv = float(row['rating'])
@@ -332,37 +339,40 @@ def restaurant_card(row, key_prefix, meta, similarity):
                 st.markdown(f"{stars} **{rv:.1f}**")
             except:
                 st.markdown(f"★ {row['rating']}")
-        
+
+        # Tags
         tags = row.get('tags', '')
         if tags:
-            tag_list = [f"<span style='background:#e9ecef; padding:2px 6px; border-radius:4px; font-size:0.8em; margin:2px'>{t.strip()}</span>" for t in tags.split(",") if t.strip()]
+            tag_list = [
+                f"<span style='background:#e9ecef; padding:2px 6px; border-radius:4px; "
+                f"font-size:0.8em; margin:2px'>{t.strip()}</span>"
+                for t in tags.split(",") if t.strip()
+            ]
             st.markdown(" ".join(tag_list), unsafe_allow_html=True)
-        
+
+        # Expander for review and details
         with st.expander("Details & Review"):
             col1, col2 = st.columns(2)
+
+            # --- Left column: Review submission ---
             with col1:
                 st.markdown("**Leave a Comment**")
                 review_key = f"rev_input_{key_prefix}_{row['restaurant_id']}"
                 submit_key = f"submit_rev_{key_prefix}_{row['restaurant_id']}"
-                
-                current_review = st.session_state.get(review_key, "")
-                
-                review = st.text_area(
-                    "Your thoughts",
-                    value=current_review,
-                    key=review_key,
-                    height=70
-                )
-                
+
+                review = st.text_area("Your thoughts", key=review_key, height=70)
+
                 if st.button("Submit Review", key=submit_key):
                     if review and review.strip():
                         save_user_review(st.session_state.username, str(row['restaurant_id']), review)
-                        st.session_state[review_key] = ""
+                        st.session_state.pop(review_key, None)
                         st.session_state[f"refresh_rev_{row['restaurant_id']}"] = True
                         st.success("Review submitted!")
+                        st.experimental_rerun()  # ✅ rerun after submission to avoid StreamlitAPIException
                     else:
-                        st.warning("Please write a comment.")
-            
+                        st.warning("Please write a comment before submitting.")
+
+            # --- Right column: Similar restaurants ---
             with col2:
                 if st.button("Show Similar", key=f"sim_{key_prefix}_{row['restaurant_id']}"):
                     sims = get_similar_with_reasons(row['restaurant_id'], similarity, meta)
@@ -372,13 +382,16 @@ def restaurant_card(row, key_prefix, meta, similarity):
                         st.markdown("**Similar restaurants:**")
                         for _, s in sims.iterrows():
                             st.markdown(f"• **{s['name']}** — {s['cuisine']}")
-                            st.markdown(f"  <small style='color:#28a745'>{s['reasons']}</small>", unsafe_allow_html=True)
+                            st.markdown(
+                                f"<small style='color:#28a745'>{s['reasons']}</small>",
+                                unsafe_allow_html=True
+                            )
 
             st.markdown("---")
             st.markdown("**User Comments**")
-            
+
             if st.session_state.pop(f"refresh_rev_{row['restaurant_id']}", False):
-                st.rerun()
+                st.experimental_rerun()
 
             reviews = get_restaurant_reviews(row['restaurant_id'])
             if reviews.empty:
