@@ -368,7 +368,7 @@ def restaurant_card(row, key_prefix, meta, similarity):
                         st.session_state.pop(review_key, None)
                         st.session_state[f"refresh_rev_{row['restaurant_id']}"] = True
                         st.success("Review submitted!")
-                        st.experimental_rerun()  # ✅ rerun after submission to avoid StreamlitAPIException
+                        st.rerun()  # ✅ Modern Streamlit rerun
                     else:
                         st.warning("Please write a comment before submitting.")
 
@@ -391,7 +391,7 @@ def restaurant_card(row, key_prefix, meta, similarity):
             st.markdown("**User Comments**")
 
             if st.session_state.pop(f"refresh_rev_{row['restaurant_id']}", False):
-                st.experimental_rerun()
+                st.rerun()  # ✅ Modern rerun
 
             reviews = get_restaurant_reviews(row['restaurant_id'])
             if reviews.empty:
@@ -401,6 +401,7 @@ def restaurant_card(row, key_prefix, meta, similarity):
                     st.markdown(f"**{r['username']}** — *{r['created_at'][:10]}*")
                     st.markdown(f"> {r['review']}")
                     st.markdown("---")
+
 
 # ============================
 # MAIN APP
