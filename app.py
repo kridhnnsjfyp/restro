@@ -1,9 +1,3 @@
-"""
-FINAL FYP APP — KRISH CHAKRADHAR (00020758)
-Restaurant Recommender — Collaborative Filtering + Explainable Similarity
-EC3319 — Nilai University | Supervisor: Subarna Sapkota
-"""
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,9 +7,8 @@ import pickle
 import math
 from pathlib import Path
 
-# ============================
+
 # CONFIG & PATHS
-# ============================
 st.set_page_config(page_title="Kathmandu Restaurant Recommender", layout="wide", initial_sidebar_state="expanded")
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "restaurant_recommender.db"
@@ -23,9 +16,7 @@ MODEL_DIR = BASE_DIR / "recommender_model"
 SIMILARITY_PKL = MODEL_DIR / "similarity_matrix.pkl"
 RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 
-# ============================
 # INIT DB
-# ============================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -54,9 +45,7 @@ def init_db():
 
 init_db()
 
-# ============================
 # UTILS
-# ============================
 def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
 def safe_read_csv(path):
@@ -67,9 +56,7 @@ def safe_read_csv(path):
     except:
         return pd.DataFrame()
 
-# ============================
 # LOAD METADATA
-# ============================
 @st.cache_data
 def load_metadata():
     df = safe_read_csv(RESTAURANT_META_CSV)
@@ -110,9 +97,7 @@ def load_metadata():
     df = df.reset_index(drop=True)
     return df
 
-# ============================
 # SIMILARITY — EXPLAINABLE (NO %)
-# ============================
 @st.cache_data
 def load_or_create_similarity(meta):
     if SIMILARITY_PKL.exists():
@@ -158,9 +143,7 @@ def load_or_create_similarity(meta):
     st.success("Similarity ready!")
     return sim_matrix
 
-# ============================
 # DB FUNCTIONS
-# ============================
 def get_user(username):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -225,9 +208,7 @@ def save_user_rating(username, restaurant_id, rating, review=""):
         conn.close()
     except: pass
 
-# ============================
 # GET REVIEWS FOR RESTAURANT
-# ============================
 def get_restaurant_reviews(restaurant_id):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -242,9 +223,7 @@ def get_restaurant_reviews(restaurant_id):
     except:
         return pd.DataFrame()
 
-# ============================
 # GET SIMILAR — SMART REASONS
-# ============================
 def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
     rid = str(restaurant_id).strip()
     try:
@@ -297,9 +276,7 @@ def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
     except:
         return pd.DataFrame()
 
-# ============================
 # RECOMMEND USER
-# ============================
 def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -326,9 +303,7 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
         candidates = candidates.sort_values('rating', ascending=False, na_position='last')
     return candidates.head(top_n).reset_index(drop=True)
 
-# ============================
 # UI CARD — WITH REVIEWS
-# ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
         st.markdown(f"<h4 style='margin:0; color:#1A5F7A'>{row['name']}</h4>", unsafe_allow_html=True)
@@ -380,9 +355,7 @@ def restaurant_card(row, key_prefix, meta, similarity):
                     st.markdown(f"> {r['review']}")
                     st.markdown("---")
 
-# ============================
 # MAIN APP
-# ============================
 def main():
     st.markdown("<h1 style='text-align:center; color:#1A5F7A'>Kathmandu Restaurant Recommender</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align:center; color:#adb5bd'>Find your perfect meal with AI-powered recommendations</p>", unsafe_allow_html=True)
@@ -436,7 +409,7 @@ def main():
                     st.rerun()
         return
 
-    # === SIDEBAR: USER PROFILE ===
+    # USER PROFILE 
     with st.sidebar:
         st.markdown(f"### {st.session_state.username}")
         st.write(f"**Location:** {st.session_state.location or 'Any'}")
