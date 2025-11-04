@@ -24,7 +24,7 @@ SIMILARITY_PKL = MODEL_DIR / "similarity_matrix.pkl"
 RESTAURANT_META_CSV = MODEL_DIR / "restaurant_metadata.csv"
 
 # ============================
-# INIT DB — NO RATING COLUMN
+# INIT DB — ONLY REVIEWS (NO RATINGS)
 # ============================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -56,7 +56,8 @@ init_db()
 # ============================
 # UTILS
 # ============================
-def hash_password(pw): return hashlib.sha256(pw.encode()).hexdigest()
+def hash_password(pw): 
+    return hashlib.sha256(pw.encode()).hexdigest()
 
 def safe_read_csv(path):
     if not path.exists():
@@ -165,7 +166,8 @@ def get_user(username):
         row = cur.fetchone()
         conn.close()
         return dict(zip(["username", "email", "location", "preferences"], row)) if row else None
-    except: return None
+    except: 
+        return None
 
 def create_user(username, email, password):
     if not username or not password:
@@ -181,7 +183,8 @@ def create_user(username, email, password):
         conn.commit()
         conn.close()
         return True, "Account successfully created! Please login."
-    except: return False, "Error creating user."
+    except: 
+        return False, "Error creating user."
 
 def verify_user(username, password):
     try:
@@ -191,16 +194,19 @@ def verify_user(username, password):
         row = cur.fetchone()
         conn.close()
         return row and row[0] == hash_password(password)
-    except: return False
+    except: 
+        return False
 
 def update_user_location(username, location):
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
+
         cur.execute("UPDATE users SET location=? WHERE username=?", (location, username))
         conn.commit()
         conn.close()
-    except: pass
+    except: 
+        pass
 
 def update_user_preferences(username, prefs):
     try:
@@ -209,7 +215,8 @@ def update_user_preferences(username, prefs):
         cur.execute("UPDATE users SET preferences=? WHERE username=?", (prefs, username))
         conn.commit()
         conn.close()
-    except: pass
+    except: 
+        pass
 
 def save_user_review(username, restaurant_id, review=""):
     review = review.strip()
@@ -222,9 +229,8 @@ def save_user_review(username, restaurant_id, review=""):
                     (username, restaurant_id, review))
         conn.commit()
         conn.close()
-        print(f"REVIEW SAVED: {username} @ {restaurant_id}: {review}")
     except Exception as e:
-        print(f"DB ERROR: {e}")
+        print(f"DB SAVE ERROR: {e}")
 
 # ============================
 # GET REVIEWS FOR RESTAURANT
@@ -235,7 +241,7 @@ def get_restaurant_reviews(restaurant_id):
         df = pd.read_sql("""
             SELECT username, review, created_at 
             FROM reviews 
-            WHERE restaurant_id=? AND review IS NOT NULL AND TRIM(review) != ''
+            WHERE restaurant_id=? AND review != ''
             ORDER BY created_at DESC
         """, conn, params=(str(restaurant_id),))
         conn.close()
@@ -300,7 +306,7 @@ def get_similar_with_reasons(restaurant_id, similarity, meta, top_n=6):
         return pd.DataFrame()
 
 # ============================
-# RECOMMEND USER — NO RATED FILTER
+# RECOMMEND USER
 # ============================
 def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=12):
     candidates = meta.copy()
@@ -320,7 +326,7 @@ def recommend_user(username, meta, similarity, location=None, prefs=None, top_n=
     return candidates.head(top_n).reset_index(drop=True)
 
 # ============================
-# UI CARD — ONLY REVIEW
+# UI CARD — REVIEW ONLY
 # ============================
 def restaurant_card(row, key_prefix, meta, similarity):
     with st.container():
@@ -520,7 +526,7 @@ def main():
             df = pd.read_sql("""
                 SELECT restaurant_id, review, created_at 
                 FROM reviews 
-                WHERE username=? AND review IS NOT NULL AND TRIM(review) != ''
+                WHERE username=? AND review != ''
                 ORDER BY created_at DESC
             """, conn, params=(st.session_state.username,))
             conn.close()
@@ -533,8 +539,8 @@ def main():
                     st.markdown(f"> {r['review']}")
                     st.markdown("---")
         except Exception as e:
-            st.error("Error loading reviews.")
-            print(e)
+            print(f"LOAD ERROR: {e}")
+            st.info("No reviews found.")
 
 if __name__ == "__main__":
     main()
